@@ -22,9 +22,9 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 	// Create the users table if it doesn't exist
 	createTableQuery := `
 	CREATE TABLE IF NOT EXISTS users (
-			email TEXT PRIMARY KEY,
-			username TEXT,
-			public_key TEXT
+			email TEXT PRIMARY KEY NOT NULL CHECK(email <> ''),
+			username TEXT NOT NULL CHECK(username <> ''),
+			public_key TEXT NOT NULL CHECK(public_key <> '')
 		);`
 	if _, err := db.Exec(createTableQuery); err != nil {
 		log.Fatal("Failed to create users table:", err)
