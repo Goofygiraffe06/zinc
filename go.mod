@@ -1,4 +1,4 @@
-module zinc
+module github.com/Goofygiraffe06/zinc
 
 go 1.24.4
 
