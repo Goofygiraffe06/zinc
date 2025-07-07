@@ -12,6 +12,7 @@ func GenerateJWT(email string) (string, error) {
 		"sub": email,
 		"iss": config.JWTIssuer(),
 		"exp": time.Now().Add(config.JWTExpiresIn()).Unix(),
+		"iat": time.Now().Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(config.JWTSecret()))
