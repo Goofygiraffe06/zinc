@@ -17,6 +17,20 @@ func getBaseURL() string {
 	return "http://localhost:8000"
 }
 
+// TestMain performs a health check before executing any tests
+func TestMain(m *testing.M) {
+	resp, err := http.Get(baseURL + "/health")
+	if err != nil {
+		println("ZINC server is not reachable at", baseURL)
+		os.Exit(1)
+	}
+	if resp.StatusCode != http.StatusOK {
+		println("/health check failed with status:", resp.Status)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
+
 func TestRegisterInitEndpoint(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -52,7 +66,7 @@ func TestRegisterInitEndpoint(t *testing.T) {
 			name:           "duplicate email reuse",
 			body:           map[string]string{"email": "inituser1@example.com"},
 			contentType:    "application/json",
-			expectedStatus: http.StatusConflict, // already in session or DB
+			expectedStatus: http.StatusConflict,
 		},
 		{
 			name:           "whitespace email",
