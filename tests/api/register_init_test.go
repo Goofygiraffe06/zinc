@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/Goofygiraffe06/zinc/api"
@@ -12,15 +13,14 @@ import (
 	"github.com/Goofygiraffe06/zinc/store"
 )
 
-func setup(t *testing.T) (*store.SQLiteStore, *store.SessionStore, func()) {
+func setup(t *testing.T) (*store.SQLiteStore, func()) {
 	t.Helper()
 	userStore, err := store.NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("failed to create SQLite store: %v", err)
 	}
-	sessions := store.NewSessionStore()
 	cleanup := func() { userStore.Close() }
-	return userStore, sessions, cleanup
+	return userStore, cleanup
 }
 
 func makeRequest(t *testing.T, handler http.HandlerFunc, payload any) *httptest.ResponseRecorder {
@@ -37,11 +37,16 @@ func makeRequest(t *testing.T, handler http.HandlerFunc, payload any) *httptest.
 }
 
 func TestRegisterInitHandler(t *testing.T) {
+	// Manually set required environment variables
+	os.Setenv("JWT_SECRET", "test-secret")
+	os.Setenv("JWT_ISSUER", "zinc-test")
+	os.Setenv("JWT_EXPIRES_IN", "1h")
+
 	t.Run("valid registration", func(t *testing.T) {
-		store, sessions, cleanup := setup(t)
+		store, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(store, sessions)
+		handler := api.RegisterInitHandler(store)
 		rr := makeRequest(t, handler, map[string]string{"email": "test@example.com"})
 
 		if rr.Code != http.StatusOK {
@@ -56,16 +61,16 @@ func TestRegisterInitHandler(t *testing.T) {
 		if err := json.NewDecoder(rr.Body).Decode(&res); err != nil {
 			t.Fatalf("response not valid JSON: %v", err)
 		}
-		if res["status"] != "ok" {
-			t.Errorf(`expected {"status":"ok"}, got %v`, res)
+		if res["token"] == "" {
+			t.Errorf(`expected non-empty token in response, got %v`, res)
 		}
 	})
 
 	t.Run("missing email field", func(t *testing.T) {
-		store, sessions, cleanup := setup(t)
+		store, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(store, sessions)
+		handler := api.RegisterInitHandler(store)
 		rr := makeRequest(t, handler, map[string]string{})
 
 		if rr.Code != http.StatusBadRequest {
@@ -74,10 +79,10 @@ func TestRegisterInitHandler(t *testing.T) {
 	})
 
 	t.Run("empty email string", func(t *testing.T) {
-		store, sessions, cleanup := setup(t)
+		store, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(store, sessions)
+		handler := api.RegisterInitHandler(store)
 		rr := makeRequest(t, handler, map[string]string{"email": ""})
 
 		if rr.Code != http.StatusBadRequest {
@@ -86,7 +91,7 @@ func TestRegisterInitHandler(t *testing.T) {
 	})
 
 	t.Run("user already exists", func(t *testing.T) {
-		store, sessions, cleanup := setup(t)
+		store, cleanup := setup(t)
 		defer cleanup()
 
 		_ = store.AddUser(models.User{
@@ -95,7 +100,7 @@ func TestRegisterInitHandler(t *testing.T) {
 			PublicKey: "bobkey",
 		})
 
-		handler := api.RegisterInitHandler(store, sessions)
+		handler := api.RegisterInitHandler(store)
 		rr := makeRequest(t, handler, map[string]string{"email": "bob@example.com"})
 
 		if rr.Code != http.StatusConflict {
@@ -103,25 +108,11 @@ func TestRegisterInitHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("session already active", func(t *testing.T) {
-		store, sessions, cleanup := setup(t)
-		defer cleanup()
-
-		sessions.Start("alice@example.com")
-
-		handler := api.RegisterInitHandler(store, sessions)
-		rr := makeRequest(t, handler, map[string]string{"email": "alice@example.com"})
-
-		if rr.Code != http.StatusConflict {
-			t.Errorf("expected 409 Conflict for active session, got %d", rr.Code)
-		}
-	})
-
 	t.Run("malformed JSON body", func(t *testing.T) {
-		store, sessions, cleanup := setup(t)
+		store, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(store, sessions)
+		handler := api.RegisterInitHandler(store)
 		req := httptest.NewRequest(http.MethodPost, "/register/init", bytes.NewBufferString(`not-json`))
 		req.Header.Set("Content-Type", "application/json")
 		rr := httptest.NewRecorder()
