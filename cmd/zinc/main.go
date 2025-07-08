@@ -14,6 +14,7 @@ import (
 func main() {
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)
+	ephemeral := store.NewEphemeralStore()
 
 	// SQLite setup
 	userStore, err := store.NewSQLiteStore("zinc.db")
@@ -28,7 +29,7 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	router.Post("/register/init", api.RegisterInitHandler(userStore))
+	router.Post("/register/init", api.RegisterInitHandler(userStore, ephemeral))
 
 	port := ":" + config.GetEnv("PORT", "8080")
 	log.Println("ZINC server listening on", port)
