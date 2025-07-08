@@ -7,11 +7,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func GenerateJWT(email string) (string, error) {
+func GenerateMagicToken(email string) (string, error) {
 	claims := jwt.MapClaims{
 		"sub": email,
-		"iss": config.JWTIssuer(),
-		"exp": time.Now().Add(config.JWTExpiresIn()).Unix(),
+		"iss": config.JWTVerificationIssuer(),
+		"exp": time.Now().Add(config.JWTRegistrationExpiresIn()).Unix(),
 		"iat": time.Now().Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

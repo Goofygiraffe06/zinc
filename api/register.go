@@ -45,7 +45,7 @@ func RegisterInitHandler(userStore *store.SQLiteStore) http.HandlerFunc {
 			return
 		}
 
-		token, err := auth.GenerateJWT(req.Email)
+		token, err := auth.GenerateMagicToken(req.Email)
 		if err != nil {
 			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
 			return
