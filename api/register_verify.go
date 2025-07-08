@@ -23,15 +23,21 @@ func RegisterVerifyHandler(ephemeral *store.EphemeralStore) http.HandlerFunc {
 			return
 		}
 
+		// Parse and validate token securely
 		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+			// Enforce correct algorithm (HS256)
+			if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+				return nil, jwt.ErrSignatureInvalid
+			}
 			return []byte(config.JWTSecret()), nil
-		}, jwt.WithIssuer(config.JWTVerificationIssuer()))
+		}, jwt.WithIssuer(config.JWTVerificationIssuer()), jwt.WithValidMethods([]string{"HS256"}))
 
 		if err != nil || !token.Valid {
 			respondJSON(w, http.StatusForbidden, ErrorResponse{Error: "Invalid or expired token"})
 			return
 		}
 
+		// Extract and validate email from subject
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
 			respondJSON(w, http.StatusForbidden, ErrorResponse{Error: "Invalid token claims"})
@@ -44,8 +50,7 @@ func RegisterVerifyHandler(ephemeral *store.EphemeralStore) http.HandlerFunc {
 			return
 		}
 
-		exists := ephemeral.Exists(email)
-		if !exists {
+		if !ephemeral.Exists(email) {
 			respondJSON(w, http.StatusForbidden, ErrorResponse{Error: "Token expired or already used"})
 			return
 		}
