@@ -13,14 +13,20 @@ import (
 	"github.com/Goofygiraffe06/zinc/store"
 )
 
-func setup(t *testing.T) (*store.SQLiteStore, func()) {
+func setup(t *testing.T) (*store.SQLiteStore, *store.EphemeralStore, func()) {
 	t.Helper()
+
 	userStore, err := store.NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("failed to create SQLite store: %v", err)
 	}
-	cleanup := func() { userStore.Close() }
-	return userStore, cleanup
+
+	ephemeral := store.NewEphemeralStore()
+
+	cleanup := func() {
+		userStore.Close()
+	}
+	return userStore, ephemeral, cleanup
 }
 
 func makeRequest(t *testing.T, handler http.HandlerFunc, payload any) *httptest.ResponseRecorder {
@@ -37,16 +43,16 @@ func makeRequest(t *testing.T, handler http.HandlerFunc, payload any) *httptest.
 }
 
 func TestRegisterInitHandler(t *testing.T) {
-	// Manually set required environment variables
+	// Set required environment variables
 	os.Setenv("JWT_SECRET", "test-secret")
 	os.Setenv("JWT_ISSUER", "zinc-test")
-	os.Setenv("JWT_EXPIRES_IN", "1h")
+	os.Setenv("JWT_EXPIRES_IN", "1") // in minutes
 
 	t.Run("valid registration", func(t *testing.T) {
-		store, cleanup := setup(t)
+		store, ephemeral, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(store)
+		handler := api.RegisterInitHandler(store, ephemeral)
 		rr := makeRequest(t, handler, map[string]string{"email": "test@example.com"})
 
 		if rr.Code != http.StatusOK {
@@ -67,10 +73,10 @@ func TestRegisterInitHandler(t *testing.T) {
 	})
 
 	t.Run("missing email field", func(t *testing.T) {
-		store, cleanup := setup(t)
+		store, ephemeral, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(store)
+		handler := api.RegisterInitHandler(store, ephemeral)
 		rr := makeRequest(t, handler, map[string]string{})
 
 		if rr.Code != http.StatusBadRequest {
@@ -79,10 +85,10 @@ func TestRegisterInitHandler(t *testing.T) {
 	})
 
 	t.Run("empty email string", func(t *testing.T) {
-		store, cleanup := setup(t)
+		store, ephemeral, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(store)
+		handler := api.RegisterInitHandler(store, ephemeral)
 		rr := makeRequest(t, handler, map[string]string{"email": ""})
 
 		if rr.Code != http.StatusBadRequest {
@@ -91,7 +97,7 @@ func TestRegisterInitHandler(t *testing.T) {
 	})
 
 	t.Run("user already exists", func(t *testing.T) {
-		store, cleanup := setup(t)
+		store, ephemeral, cleanup := setup(t)
 		defer cleanup()
 
 		_ = store.AddUser(models.User{
@@ -100,7 +106,7 @@ func TestRegisterInitHandler(t *testing.T) {
 			PublicKey: "bobkey",
 		})
 
-		handler := api.RegisterInitHandler(store)
+		handler := api.RegisterInitHandler(store, ephemeral)
 		rr := makeRequest(t, handler, map[string]string{"email": "bob@example.com"})
 
 		if rr.Code != http.StatusConflict {
@@ -109,10 +115,10 @@ func TestRegisterInitHandler(t *testing.T) {
 	})
 
 	t.Run("malformed JSON body", func(t *testing.T) {
-		store, cleanup := setup(t)
+		store, ephemeral, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(store)
+		handler := api.RegisterInitHandler(store, ephemeral)
 		req := httptest.NewRequest(http.MethodPost, "/register/init", bytes.NewBufferString(`not-json`))
 		req.Header.Set("Content-Type", "application/json")
 		rr := httptest.NewRecorder()

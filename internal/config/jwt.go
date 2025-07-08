@@ -6,10 +6,18 @@ func JWTSecret() string {
 	return MustGetEnv("JWT_SECRET")
 }
 
+func JWTVerificationIssuer() string {
+	return GetEnv("JWT_VERIFICATION_ISSUER", "zinc-verify")
+}
+
 func JWTIssuer() string {
 	return GetEnv("JWT_ISSUER", "zinc-auth")
 }
 
-func JWTExpiresIn() time.Duration {
-	return MustParseDuration("JWT_EXPIRES_IN", "15m")
+func JWTRegistrationExpiresIn() time.Duration {
+	return MustParseDuration("JWT_REGISTRATION_EXPIRES_IN", "3m")
+}
+
+func JWTSessionExpiresIn() time.Duration {
+	return MustParseDuration("JWT_SESSION_EXPIRES_IN", "6h")
 }
