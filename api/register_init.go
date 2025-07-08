@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Goofygiraffe06/zinc/internal/auth"
+	"github.com/Goofygiraffe06/zinc/internal/config"
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/go-playground/validator/v10"
 )
@@ -57,7 +58,7 @@ func RegisterInitHandler(userStore *store.SQLiteStore, ephemeral *store.Ephemera
 			return
 		}
 
-		if err := ephemeral.Set(req.Email, 3*time.Minute); err != nil {
+		if err := ephemeral.Set(req.Email, config.JWTRegistrationExpiresIn()*time.Minute); err != nil {
 			switch err {
 			case store.ErrTooLong:
 				respondJSON(w, http.StatusBadRequest, ErrorResponse{Error: "Email too long"})
