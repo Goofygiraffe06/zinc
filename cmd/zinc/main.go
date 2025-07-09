@@ -7,6 +7,7 @@ import (
 	"github.com/Goofygiraffe06/zinc/api"
 	"github.com/Goofygiraffe06/zinc/internal/config"
 	"github.com/Goofygiraffe06/zinc/store"
+	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -14,7 +15,10 @@ import (
 func main() {
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)
-	ephemeral := store.NewEphemeralStore()
+
+	// Initialize ephemeral stores
+	ttlStore := ephemeral.NewTTLStore()
+	nonceStore := ephemeral.NewNonceStore()
 
 	// SQLite setup
 	userStore, err := store.NewSQLiteStore("zinc.db")
@@ -29,8 +33,9 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	router.Post("/register/init", api.RegisterInitHandler(userStore, ephemeral))
-	router.Get("/register/verify", api.RegisterVerifyHandler(ephemeral))
+	router.Post("/register/init", api.RegisterInitHandler(userStore, ttlStore))
+	router.Get("/register/verify", api.RegisterVerifyHandler(ttlStore, nonceStore))
+	router.Post("/register", api.RegisterHandler(userStore, nonceStore))
 
 	port := ":" + config.GetEnv("PORT", "8080")
 	log.Println("ZINC server listening on", port)
