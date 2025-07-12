@@ -23,11 +23,11 @@ func RegisterVerifyHandler(ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.N
 
 		// Parse and validate token securely
 		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-			if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			if token.Method.Alg() != jwt.SigningMethodEdDSA.Alg() {
 				return nil, jwt.ErrSignatureInvalid
 			}
-			return []byte(config.JWTSecret()), nil
-		}, jwt.WithIssuer(config.JWTVerificationIssuer()), jwt.WithValidMethods([]string{"HS256"}))
+			return auth.GetSigningKey().PublicKey, nil
+		}, jwt.WithIssuer(config.JWTVerificationIssuer()), jwt.WithValidMethods([]string{"EdDSA"}))
 
 		if err != nil || !token.Valid {
 			respondJSON(w, http.StatusForbidden, models.ErrorResponse{Error: "Invalid or expired token"})

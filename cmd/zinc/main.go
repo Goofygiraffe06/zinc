@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Goofygiraffe06/zinc/api"
+	"github.com/Goofygiraffe06/zinc/internal/auth"
 	"github.com/Goofygiraffe06/zinc/internal/config"
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
@@ -15,6 +16,9 @@ import (
 func main() {
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)
+
+	//Initilalize Signing Keys
+	auth.InitSigningKey()
 
 	// Initialize ephemeral stores
 	ttlStore := ephemeral.NewTTLStore()
