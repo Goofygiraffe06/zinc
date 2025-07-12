@@ -27,6 +27,11 @@ func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceSt
 		req.Signature = strings.TrimSpace(req.Signature)
 		req.Nonce = strings.TrimSpace(req.Nonce)
 
+		req.Username = strings.ToLower(req.Username)
+		req.Username = strings.ReplaceAll(req.Username, " ", "")
+		req.PublicKey = strings.ReplaceAll(req.PublicKey, "\n", "")
+		req.PublicKey = strings.ReplaceAll(req.PublicKey, "\r", "")
+
 		// Validate payload
 		if err := validate.Struct(req); err != nil {
 			respondJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Validation failed"})
