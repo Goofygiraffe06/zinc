@@ -2,38 +2,30 @@ package auth
 
 import (
 	"crypto/ed25519"
-	"crypto/x509"
-	"encoding/hex"
-	"encoding/pem"
+	"encoding/base64"
 	"errors"
 )
 
-func VerifySignature(pubKeyPEM, message, signatureHex string) (bool, error) {
-	// Decode PEM
-	block, _ := pem.Decode([]byte(pubKeyPEM))
-	if block == nil || block.Type != "PUBLIC KEY" {
-		return false, errors.New("invalid PEM format or missing public key")
-	}
-
-	// Parse to ed25519.PublicKey
-	pubKeyInterface, err := x509.ParsePKIXPublicKey(block.Bytes)
+func VerifySignature(pubKeyB64, message, signatureB64 string) (bool, error) {
+	// Decode base64 public key
+	pubKey, err := base64.StdEncoding.DecodeString(pubKeyB64)
 	if err != nil {
-		return false, err
+		return false, errors.New("invalid base64 public key")
 	}
-	pubKey, ok := pubKeyInterface.(ed25519.PublicKey)
-	if !ok {
-		return false, errors.New("not an Ed25519 public key")
+	if len(pubKey) != ed25519.PublicKeySize {
+		return false, errors.New("incorrect public key size")
 	}
 
-	// Decode signature
-	sigBytes, err := hex.DecodeString(signatureHex)
+	// Decode base64 signature
+	sig, err := base64.StdEncoding.DecodeString(signatureB64)
 	if err != nil {
-		return false, errors.New("invalid signature hex")
+		return false, errors.New("invalid base64 signature")
 	}
-	if len(sigBytes) != ed25519.SignatureSize {
-		return false, errors.New("invalid signature size")
+	if len(sig) != ed25519.SignatureSize {
+		return false, errors.New("incorrect signature size")
 	}
 
-	ok = ed25519.Verify(pubKey, []byte(message), sigBytes)
-	return ok, nil
+	// Verify signature
+	valid := ed25519.Verify(pubKey, []byte(message), sig)
+	return valid, nil
 }
