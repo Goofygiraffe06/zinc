@@ -25,7 +25,7 @@ func RegisterInitHandler(userStore *store.SQLiteStore, ttlStore *ephemeral.TTLSt
 			return
 		}
 
-		req.Email = strings.TrimSpace(req.Email)
+		req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 
 		if err := validate.Struct(req); err != nil {
 			respondJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid email address"})
