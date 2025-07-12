@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/Goofygiraffe06/zinc/api"
 	"github.com/Goofygiraffe06/zinc/internal/auth"
@@ -19,7 +20,13 @@ func main() {
 
 	//Initilalize Signing Keys
 	auth.InitSigningKey()
-
+	// Set restrictive permissions for the SQLite database file if it exists
+	dbFile := "zinc.db"
+	if _, err := os.Stat(dbFile); err == nil {
+		if err := os.Chmod(dbFile, 0600); err != nil {
+			log.Printf("Warning: failed to set restrictive permissions on %s: %v", dbFile, err)
+		}
+	}
 	// Initialize ephemeral stores
 	ttlStore := ephemeral.NewTTLStore()
 	nonceStore := ephemeral.NewNonceStore()
