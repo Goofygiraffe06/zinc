@@ -1,6 +1,7 @@
 package ephemeral
 
 import (
+	"crypto/subtle"
 	"errors"
 	"sync"
 	"time"
@@ -47,7 +48,6 @@ func (s *coreStore) set(key, value string, ttl time.Duration) error {
 	}
 	return nil
 }
-
 func (s *coreStore) get(key string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -57,6 +57,14 @@ func (s *coreStore) get(key string) (string, bool) {
 		return "", false
 	}
 	return it.value, true
+}
+
+// ConstantTimeEquals compares two strings in constant time to prevent timing attacks.
+func ConstantTimeEquals(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func (s *coreStore) delete(key string) {
