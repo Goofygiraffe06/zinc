@@ -2,18 +2,20 @@ package api_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/Goofygiraffe06/zinc/api"
+	"github.com/Goofygiraffe06/zinc/internal/auth"
 	"github.com/Goofygiraffe06/zinc/internal/models"
 	"github.com/Goofygiraffe06/zinc/store"
+	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 )
 
-func setup(t *testing.T) (*store.SQLiteStore, *store.EphemeralStore, func()) {
+func setup(t *testing.T) (*store.SQLiteStore, *ephemeral.TTLStore, func()) {
 	t.Helper()
 
 	userStore, err := store.NewSQLiteStore(":memory:")
@@ -21,38 +23,43 @@ func setup(t *testing.T) (*store.SQLiteStore, *store.EphemeralStore, func()) {
 		t.Fatalf("failed to create SQLite store: %v", err)
 	}
 
-	ephemeral := store.NewEphemeralStore()
+	ephemeralStore := ephemeral.NewTTLStore()
 
 	cleanup := func() {
 		userStore.Close()
 	}
-	return userStore, ephemeral, cleanup
+
+	return userStore, ephemeralStore, cleanup
 }
 
 func makeRequest(t *testing.T, handler http.HandlerFunc, payload any) *httptest.ResponseRecorder {
 	t.Helper()
+
 	body, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("failed to marshal payload: %v", err)
 	}
+
 	req := httptest.NewRequest(http.MethodPost, "/register/init", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
+
 	handler.ServeHTTP(rr, req)
 	return rr
 }
 
 func TestRegisterInitHandler(t *testing.T) {
-	// Set required environment variables
-	os.Setenv("JWT_SECRET", "test-secret")
-	os.Setenv("JWT_ISSUER", "zinc-test")
-	os.Setenv("JWT_EXPIRES_IN", "1") // in minutes
+	auth.InitSigningKey()
+	key := auth.GetSigningKey()
+	t.Setenv("JWT_SECRET", base64.StdEncoding.EncodeToString(key.PrivateKey))
+	t.Setenv("JWT_ISSUER", "zinc-test")
+	t.Setenv("JWT_EXPIRES_IN", "1") // in minutes
 
 	t.Run("valid registration", func(t *testing.T) {
-		store, ephemeral, cleanup := setup(t)
+		userStore, ephemeralStore, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(store, ephemeral)
+		handler := api.RegisterInitHandler(userStore, ephemeralStore)
 		rr := makeRequest(t, handler, map[string]string{"email": "test@example.com"})
 
 		if rr.Code != http.StatusOK {
@@ -68,15 +75,15 @@ func TestRegisterInitHandler(t *testing.T) {
 			t.Fatalf("response not valid JSON: %v", err)
 		}
 		if res["token"] == "" {
-			t.Errorf(`expected non-empty token in response, got %v`, res)
+			t.Errorf("expected non-empty token in response, got %v", res)
 		}
 	})
 
 	t.Run("missing email field", func(t *testing.T) {
-		store, ephemeral, cleanup := setup(t)
+		userStore, ephemeralStore, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(store, ephemeral)
+		handler := api.RegisterInitHandler(userStore, ephemeralStore)
 		rr := makeRequest(t, handler, map[string]string{})
 
 		if rr.Code != http.StatusBadRequest {
@@ -85,10 +92,10 @@ func TestRegisterInitHandler(t *testing.T) {
 	})
 
 	t.Run("empty email string", func(t *testing.T) {
-		store, ephemeral, cleanup := setup(t)
+		userStore, ephemeralStore, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(store, ephemeral)
+		handler := api.RegisterInitHandler(userStore, ephemeralStore)
 		rr := makeRequest(t, handler, map[string]string{"email": ""})
 
 		if rr.Code != http.StatusBadRequest {
@@ -97,16 +104,19 @@ func TestRegisterInitHandler(t *testing.T) {
 	})
 
 	t.Run("user already exists", func(t *testing.T) {
-		store, ephemeral, cleanup := setup(t)
+		userStore, ephemeralStore, cleanup := setup(t)
 		defer cleanup()
 
-		_ = store.AddUser(models.User{
+		err := userStore.AddUser(models.User{
 			Email:     "bob@example.com",
 			Username:  "bob",
 			PublicKey: "bobkey",
 		})
+		if err != nil {
+			t.Fatalf("failed to add user: %v", err)
+		}
 
-		handler := api.RegisterInitHandler(store, ephemeral)
+		handler := api.RegisterInitHandler(userStore, ephemeralStore)
 		rr := makeRequest(t, handler, map[string]string{"email": "bob@example.com"})
 
 		if rr.Code != http.StatusConflict {
@@ -115,10 +125,10 @@ func TestRegisterInitHandler(t *testing.T) {
 	})
 
 	t.Run("malformed JSON body", func(t *testing.T) {
-		store, ephemeral, cleanup := setup(t)
+		userStore, ephemeralStore, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(store, ephemeral)
+		handler := api.RegisterInitHandler(userStore, ephemeralStore)
 		req := httptest.NewRequest(http.MethodPost, "/register/init", bytes.NewBufferString(`not-json`))
 		req.Header.Set("Content-Type", "application/json")
 		rr := httptest.NewRecorder()

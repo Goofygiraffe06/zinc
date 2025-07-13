@@ -37,12 +37,15 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 }
 
 func (s *SQLiteStore) AddUser(user models.User) error {
-	_, err := s.db.Exec(`
+	stmt, err := s.db.Prepare(`
 		INSERT INTO users (email, username, public_key)
-		VALUES (?, ?, ?)`,
-		user.Email, user.Username, user.PublicKey,
-	)
+		VALUES (?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
 
+	_, err = stmt.Exec(user.Email, user.Username, user.PublicKey)
 	if err != nil {
 		// Handle unique constraint violation gracefully
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") || strings.Contains(err.Error(), "constraint failed") {
@@ -55,11 +58,17 @@ func (s *SQLiteStore) AddUser(user models.User) error {
 
 func (s *SQLiteStore) GetUser(email string) (models.User, bool) {
 	var user models.User
-	err := s.db.QueryRow(`
+	stmt, err := s.db.Prepare(`
 		SELECT email, username, public_key
 		FROM users
-		WHERE email = ?`, email).Scan(&user.Email, &user.Username, &user.PublicKey)
+		WHERE email = ?`)
+	if err != nil {
+		log.Println("store.GetUser prepare error:", err)
+		return models.User{}, false
+	}
+	defer stmt.Close()
 
+	err = stmt.QueryRow(email).Scan(&user.Email, &user.Username, &user.PublicKey)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return models.User{}, false

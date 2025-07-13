@@ -3,10 +3,13 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/Goofygiraffe06/zinc/api"
+	"github.com/Goofygiraffe06/zinc/internal/auth"
 	"github.com/Goofygiraffe06/zinc/internal/config"
 	"github.com/Goofygiraffe06/zinc/store"
+	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -14,7 +17,19 @@ import (
 func main() {
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)
-	ephemeral := store.NewEphemeralStore()
+
+	//Initilalize Signing Keys
+	auth.InitSigningKey()
+	// Set restrictive permissions for the SQLite database file if it exists
+	dbFile := "zinc.db"
+	if _, err := os.Stat(dbFile); err == nil {
+		if err := os.Chmod(dbFile, 0600); err != nil {
+			log.Printf("Warning: failed to set restrictive permissions on %s: %v", dbFile, err)
+		}
+	}
+	// Initialize ephemeral stores
+	ttlStore := ephemeral.NewTTLStore()
+	nonceStore := ephemeral.NewNonceStore()
 
 	// SQLite setup
 	userStore, err := store.NewSQLiteStore("zinc.db")
@@ -29,8 +44,9 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	router.Post("/register/init", api.RegisterInitHandler(userStore, ephemeral))
-	router.Get("/register/verify", api.RegisterVerifyHandler(ephemeral))
+	router.Post("/register/init", api.RegisterInitHandler(userStore, ttlStore))
+	router.Get("/register/verify", api.RegisterVerifyHandler(ttlStore, nonceStore))
+	router.Post("/register", api.RegisterHandler(userStore, nonceStore))
 
 	port := ":" + config.GetEnv("PORT", "8080")
 	log.Println("ZINC server listening on", port)

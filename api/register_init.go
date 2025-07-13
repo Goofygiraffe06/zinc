@@ -10,12 +10,13 @@ import (
 	"github.com/Goofygiraffe06/zinc/internal/config"
 	"github.com/Goofygiraffe06/zinc/internal/models"
 	"github.com/Goofygiraffe06/zinc/store"
+	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 	"github.com/go-playground/validator/v10"
 )
 
 var validate = validator.New()
 
-func RegisterInitHandler(userStore *store.SQLiteStore, ephemeral *store.EphemeralStore) http.HandlerFunc {
+func RegisterInitHandler(userStore *store.SQLiteStore, ttlStore *ephemeral.TTLStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req models.RegisterInitRequest
 
@@ -24,7 +25,7 @@ func RegisterInitHandler(userStore *store.SQLiteStore, ephemeral *store.Ephemera
 			return
 		}
 
-		req.Email = strings.TrimSpace(req.Email)
+		req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 
 		if err := validate.Struct(req); err != nil {
 			respondJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid email address"})
@@ -36,7 +37,7 @@ func RegisterInitHandler(userStore *store.SQLiteStore, ephemeral *store.Ephemera
 			return
 		}
 
-		if ephemeral.Exists(req.Email) {
+		if ttlStore.Exists(req.Email) {
 			respondJSON(w, http.StatusConflict, models.ErrorResponse{Error: "Verification already pending"})
 			return
 		}
@@ -47,11 +48,11 @@ func RegisterInitHandler(userStore *store.SQLiteStore, ephemeral *store.Ephemera
 			return
 		}
 
-		if err := ephemeral.Set(req.Email, config.JWTRegistrationExpiresIn()*time.Minute); err != nil {
+		if err := ttlStore.Set(req.Email, config.JWTRegistrationExpiresIn()*time.Minute); err != nil {
 			switch err {
-			case store.ErrTooLong:
+			case ephemeral.ErrTooLong:
 				respondJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Email too long"})
-			case store.ErrStoreFull:
+			case ephemeral.ErrStoreFull:
 				respondJSON(w, http.StatusServiceUnavailable, models.ErrorResponse{Error: "Server busy, try again later"})
 			default:
 				respondJSON(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Internal error"})
