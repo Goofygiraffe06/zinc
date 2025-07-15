@@ -11,3 +11,7 @@ type RegisterCompleteRequest struct {
 	Nonce     string `json:"nonce" validate:"required"`
 	Signature string `json:"signature" validate:"required"`
 }
+
+type LoginInitRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}

@@ -47,6 +47,7 @@ func main() {
 	router.Post("/register/init", api.RegisterInitHandler(userStore, ttlStore))
 	router.Get("/register/verify", api.RegisterVerifyHandler(ttlStore, nonceStore))
 	router.Post("/register", api.RegisterHandler(userStore, nonceStore))
+	router.Post("/login/init", api.AuthInitHandler(userStore, nonceStore))
 
 	port := ":" + config.GetEnv("PORT", "8080")
 	log.Println("ZINC server listening on", port)
