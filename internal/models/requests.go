@@ -15,3 +15,8 @@ type RegisterCompleteRequest struct {
 type LoginInitRequest struct {
 	Email string `json:"email" validate:"required,email"`
 }
+
+type LoginVerifyRequest struct {
+	Email     string `json:"email" validate:"required,email"`
+	Signature string `json:"signature" validate:"required"`
+}
