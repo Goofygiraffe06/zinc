@@ -15,3 +15,7 @@ type TokenResponse struct {
 type VerifyResponse struct {
 	Nonce string `json:"nonce"`
 }
+
+type LoginInitResponse struct {
+	Nonce string `json:"nonce"`
+}
