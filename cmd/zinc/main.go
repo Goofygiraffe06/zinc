@@ -1,13 +1,13 @@
 package main
 
 import (
-	"log"
 	"net/http"
 	"os"
 
 	"github.com/Goofygiraffe06/zinc/api"
 	"github.com/Goofygiraffe06/zinc/internal/auth"
 	"github.com/Goofygiraffe06/zinc/internal/config"
+	"github.com/Goofygiraffe06/zinc/internal/logging"
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 	"github.com/go-chi/chi/v5"
@@ -15,27 +15,45 @@ import (
 )
 
 func main() {
-	router := chi.NewRouter()
-	router.Use(middleware.Logger)
+	// Initialize logger
+	f, err := logging.InitLogger("zinc.log")
+	if err != nil {
+		// If logging fails, we can't even log that error with zerolog, so panic.
+		panic("Failed to initialize logger: " + err.Error())
+	}
+	defer f.Close()
 
-	//Initilalize Signing Keys
+	router := chi.NewRouter()
+	router.Use(middleware.RequestID)
+	router.Use(middleware.Recoverer)
+
+	logging.InfoLog("Starting ZINC server")
+
+	// Initialize signing keys
 	auth.InitSigningKey()
-	// Set restrictive permissions for the SQLite database file if it exists
+	logging.DebugLog("Signing keys initialized")
+
+	// Secure SQLite DB file if it exists
 	dbFile := "zinc.db"
 	if _, err := os.Stat(dbFile); err == nil {
 		if err := os.Chmod(dbFile, 0600); err != nil {
-			log.Printf("Warning: failed to set restrictive permissions on %s: %v", dbFile, err)
+			logging.ErrorLog("Failed to set restrictive permissions on %s: %v", dbFile, err)
+		} else {
+			logging.DebugLog("Permissions on %s set to 0600", dbFile)
 		}
 	}
+
 	// Initialize ephemeral stores
 	ttlStore := ephemeral.NewTTLStore()
 	nonceStore := ephemeral.NewNonceStore()
+	logging.DebugLog("Ephemeral stores initialized")
 
 	// SQLite setup
-	userStore, err := store.NewSQLiteStore("zinc.db")
+	userStore, err := store.NewSQLiteStore(dbFile)
 	if err != nil {
-		log.Fatal("Failed to connect to DB:", err)
+		logging.FatalLog("Failed to connect to DB: %v", err)
 	}
+	logging.InfoLog("Connected to SQLite database: %s", dbFile)
 
 	// Routes
 	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -50,8 +68,9 @@ func main() {
 	router.Post("/login/init", api.AuthInitHandler(userStore, nonceStore))
 
 	port := ":" + config.GetEnv("PORT", "8080")
-	log.Println("ZINC server listening on", port)
+	logging.InfoLog("ZINC server listening on %s", port)
+
 	if err := http.ListenAndServe(port, router); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		logging.FatalLog("Server failed: %v", err)
 	}
 }
