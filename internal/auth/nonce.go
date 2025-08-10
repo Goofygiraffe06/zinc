@@ -11,7 +11,6 @@ import (
 // GenerateNonce returns a 32-byte hex-encoded nonce
 func GenerateNonce() (string, error) {
 	start := time.Now()
-	logging.DebugLog("Nonce generation started")
 
 	nonce := make([]byte, 32)
 	_, err := rand.Read(nonce)

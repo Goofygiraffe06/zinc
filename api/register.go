@@ -17,16 +17,15 @@ import (
 func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		logging.DebugLog("Registration complete started")
 
 		var req models.RegisterCompleteRequest
-		// Decode and sanitize input
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			logging.WarnLog("Registration complete failed: invalid JSON")
 			respondJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid JSON"})
 			return
 		}
 
+		// Sanitize input
 		req.Email = strings.TrimSpace(req.Email)
 		req.Username = strings.TrimSpace(req.Username)
 		req.PublicKey = strings.TrimSpace(req.PublicKey)
@@ -39,8 +38,6 @@ func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceSt
 
 		emailHash := utils.HashEmail(req.Email)
 		usernameHash := utils.HashUsername(req.Username)
-
-		logging.DebugLog("Registration data sanitized [%s][%s]", emailHash, usernameHash)
 
 		// Validate payload
 		if err := validate.Struct(req); err != nil {
@@ -56,21 +53,13 @@ func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceSt
 			return
 		}
 
-		// Check if nonce exists and matches
+		// Validate nonce
 		storedNonce, exists := nonceStore.Get(req.Email)
-		if !exists {
-			logging.WarnLog("Registration complete failed: nonce missing [%s]", emailHash)
+		if !exists || storedNonce != req.Nonce {
+			logging.WarnLog("Registration complete failed: nonce invalid [%s]", emailHash)
 			respondJSON(w, http.StatusForbidden, models.ErrorResponse{Error: "Nonce missing, expired, or does not match"})
 			return
 		}
-
-		if storedNonce != req.Nonce {
-			logging.WarnLog("Registration complete failed: nonce mismatch [%s]", emailHash)
-			respondJSON(w, http.StatusForbidden, models.ErrorResponse{Error: "Nonce missing, expired, or does not match"})
-			return
-		}
-
-		logging.DebugLog("Nonce validated [%s]", emailHash)
 
 		// Verify signature
 		sigStart := time.Now()
@@ -78,28 +67,25 @@ func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceSt
 		sigDuration := time.Since(sigStart)
 
 		if err != nil {
-			logging.ErrorLog("Signature verification error [%s]: %v (took %v)", emailHash, err, sigDuration)
+			logging.ErrorLog("Registration complete failed: signature error [%s]: %v", emailHash, err)
 			respondJSON(w, http.StatusForbidden, models.ErrorResponse{Error: "Invalid signature"})
 			return
 		}
 
 		if !valid {
-			logging.WarnLog("Registration complete failed: invalid signature [%s] (took %v)", emailHash, sigDuration)
+			logging.WarnLog("Registration complete failed: invalid signature [%s]", emailHash)
 			respondJSON(w, http.StatusForbidden, models.ErrorResponse{Error: "Invalid signature"})
 			return
 		}
 
-		logging.DebugLog("Signature verified [%s] %v", emailHash, sigDuration)
-
-		// Persist user
+		// Create user
 		dbStart := time.Now()
 		if err := userStore.AddUser(models.User{
 			Email:     req.Email,
 			Username:  req.Username,
 			PublicKey: req.PublicKey,
 		}); err != nil {
-			dbDuration := time.Since(dbStart)
-			logging.ErrorLog("User creation failed [%s][%s]: %v (took %v)", emailHash, usernameHash, err, dbDuration)
+			logging.ErrorLog("Registration complete failed: database error [%s][%s]: %v", emailHash, usernameHash, err)
 			respondJSON(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to save user"})
 			return
 		}
@@ -107,7 +93,6 @@ func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceSt
 
 		// Clean up nonce
 		nonceStore.Delete(req.Email)
-		logging.DebugLog("Nonce cleaned up [%s]", emailHash)
 
 		duration := time.Since(start)
 		logging.InfoLog("Registration complete success [%s][%s] %v (db: %v, sig: %v)",

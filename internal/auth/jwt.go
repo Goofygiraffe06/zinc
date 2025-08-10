@@ -11,9 +11,7 @@ import (
 )
 
 func GenerateMagicToken(email string) (string, error) {
-	start := time.Now()
 	emailHash := utils.HashEmail(email)
-	logging.DebugLog("Magic token generation started [%s]", emailHash)
 
 	key := GetSigningKey()
 	if key == nil || key.PrivateKey == nil {
@@ -21,11 +19,12 @@ func GenerateMagicToken(email string) (string, error) {
 		return "", errors.New("Ed25519 key not initialized")
 	}
 
+	now := time.Now()
 	claims := jwt.MapClaims{
-		"sub": email,
+		"sub": &email,
 		"iss": config.JWTVerificationIssuer(),
-		"exp": time.Now().Add(config.JWTRegistrationExpiresIn()).Unix(),
-		"iat": time.Now().Unix(),
+		"exp": now.Add(config.JWTRegistrationExpiresIn()).Unix(),
+		"iat": now.Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
@@ -35,15 +34,12 @@ func GenerateMagicToken(email string) (string, error) {
 		return "", err
 	}
 
-	duration := time.Since(start)
-	logging.InfoLog("Magic token generation success [%s] %v", emailHash, duration)
+	// Only log on debug level for successful operations
+	logging.DebugLog("Magic token generated [%s]", emailHash)
 	return tokenStr, nil
 }
 
 func VerifyMagicToken(tokenStr string) (*jwt.Token, error) {
-	start := time.Now()
-	logging.DebugLog("Magic token verification started")
-
 	key := GetSigningKey()
 	if key == nil || key.PublicKey == nil {
 		logging.ErrorLog("Magic token verification failed: Ed25519 key not initialized")
@@ -53,31 +49,25 @@ func VerifyMagicToken(tokenStr string) (*jwt.Token, error) {
 	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 		// Enforce that we only accept EdDSA signed tokens
 		if _, ok := token.Method.(*jwt.SigningMethodEd25519); !ok {
-			logging.WarnLog("Magic token verification failed: unexpected signing method %T", token.Method)
+			// Log at debug level for security attempts (could be noisy in production)
+			logging.DebugLog("Token verification failed: unexpected signing method %T", token.Method)
 			return nil, errors.New("unexpected signing method")
 		}
 		return key.PublicKey, nil
 	})
 
 	if err != nil {
-		logging.WarnLog("Magic token verification failed: %v", err)
+		// Only log token parsing errors at debug level to reduce noise
+		logging.DebugLog("Token verification failed: %v", err)
 		return nil, err
 	}
 
-	// Extract email from token for logging (if available)
-	var emailHash string
+	// Optional: Log successful verifications only in debug mode
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		if sub, exists := claims["sub"].(string); exists {
-			emailHash = utils.HashEmail(sub)
+			emailHash := utils.HashEmail(sub)
+			logging.DebugLog("Token verified [%s]", emailHash)
 		}
-	}
-
-	if emailHash != "" {
-		duration := time.Since(start)
-		logging.InfoLog("Magic token verification success [%s] %v", emailHash, duration)
-	} else {
-		duration := time.Since(start)
-		logging.InfoLog("Magic token verification success %v", duration)
 	}
 
 	return token, nil

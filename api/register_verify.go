@@ -18,7 +18,6 @@ import (
 func RegisterVerifyHandler(ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.NonceStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		logging.DebugLog("Registration verify started")
 
 		tokenStr := r.URL.Query().Get("token")
 		if tokenStr == "" {
@@ -30,19 +29,12 @@ func RegisterVerifyHandler(ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.N
 		// Parse and validate token securely
 		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 			if token.Method.Alg() != jwt.SigningMethodEdDSA.Alg() {
-				logging.WarnLog("Registration verify failed: invalid signing algorithm %s", token.Method.Alg())
 				return nil, jwt.ErrSignatureInvalid
 			}
 			return auth.GetSigningKey().PublicKey, nil
 		}, jwt.WithIssuer(config.JWTVerificationIssuer()), jwt.WithValidMethods([]string{"EdDSA"}))
 
-		if err != nil {
-			logging.WarnLog("Registration verify failed: token parse error - %v", err)
-			respondJSON(w, http.StatusForbidden, models.ErrorResponse{Error: "Invalid or expired token"})
-			return
-		}
-
-		if !token.Valid {
+		if err != nil || !token.Valid {
 			logging.WarnLog("Registration verify failed: invalid token")
 			respondJSON(w, http.StatusForbidden, models.ErrorResponse{Error: "Invalid or expired token"})
 			return
@@ -50,14 +42,14 @@ func RegisterVerifyHandler(ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.N
 
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
-			logging.WarnLog("Registration verify failed: invalid claims type")
+			logging.WarnLog("Registration verify failed: invalid claims")
 			respondJSON(w, http.StatusForbidden, models.ErrorResponse{Error: "Invalid token claims"})
 			return
 		}
 
 		emailInterface, exists := claims["sub"]
 		if !exists {
-			logging.WarnLog("Registration verify failed: missing subject claim")
+			logging.WarnLog("Registration verify failed: missing subject")
 			respondJSON(w, http.StatusForbidden, models.ErrorResponse{Error: "Invalid subject"})
 			return
 		}
@@ -77,19 +69,21 @@ func RegisterVerifyHandler(ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.N
 			return
 		}
 
-		// Clean up the TTL store entry
+		// Clean up the TTL store entry and generate nonce
 		ttlStore.Delete(email)
-		logging.DebugLog("TTL store entry deleted [%s]", emailHash)
 
 		nonce, err := auth.GenerateNonce()
 		if err != nil {
-			logging.ErrorLog("Nonce generation failed [%s]: %v", emailHash, err)
+			logging.ErrorLog("Registration verify failed: nonce generation [%s]: %v", emailHash, err)
 			respondJSON(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate nonce"})
 			return
 		}
 
-		nonceStore.Set(email, nonce, config.JWTRegistrationExpiresIn()*time.Minute)
-		logging.DebugLog("Nonce stored [%s]", emailHash)
+		if err := nonceStore.Set(email, nonce, config.JWTRegistrationExpiresIn()*time.Minute); err != nil {
+			logging.ErrorLog("Registration verify failed: nonce store [%s]: %v", emailHash, err)
+			respondJSON(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Internal error"})
+			return
+		}
 
 		duration := time.Since(start)
 		logging.InfoLog("Registration verify success [%s] %v", emailHash, duration)

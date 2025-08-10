@@ -21,17 +21,10 @@ var validate = validator.New()
 func RegisterInitHandler(userStore *store.SQLiteStore, ttlStore *ephemeral.TTLStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		logging.DebugLog("Registration init started")
 
 		var req models.RegisterInitRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			logging.WarnLog("Registration init failed: invalid JSON")
-			respondJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid JSON"})
-			return
-		}
-
-		if req.Email == "" {
-			logging.WarnLog("Registration init failed: missing email")
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
+			logging.WarnLog("Registration init failed: invalid request")
 			respondJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid JSON"})
 			return
 		}
@@ -40,7 +33,7 @@ func RegisterInitHandler(userStore *store.SQLiteStore, ttlStore *ephemeral.TTLSt
 		emailHash := utils.HashEmail(req.Email)
 
 		if err := validate.Struct(req); err != nil {
-			logging.WarnLog("Registration init failed: invalid email format [%s]", emailHash)
+			logging.WarnLog("Registration init failed: invalid email [%s]", emailHash)
 			respondJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid email address"})
 			return
 		}
@@ -59,13 +52,13 @@ func RegisterInitHandler(userStore *store.SQLiteStore, ttlStore *ephemeral.TTLSt
 
 		token, err := auth.GenerateMagicToken(req.Email)
 		if err != nil {
-			logging.ErrorLog("Token generation failed [%s]: %v", emailHash, err)
+			logging.ErrorLog("Registration init failed: token generation [%s]: %v", emailHash, err)
 			respondJSON(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate token"})
 			return
 		}
 
 		if err := ttlStore.Set(req.Email, config.JWTRegistrationExpiresIn()*time.Minute); err != nil {
-			logging.ErrorLog("TTL store failed [%s]: %v", emailHash, err)
+			logging.ErrorLog("Registration init failed: store error [%s]: %v", emailHash, err)
 			switch err {
 			case ephemeral.ErrTooLong:
 				respondJSON(w, http.StatusBadRequest, models.ErrorResponse{Error: "Email too long"})
