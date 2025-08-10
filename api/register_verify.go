@@ -69,7 +69,7 @@ func RegisterVerifyHandler(ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.N
 			return
 		}
 
-		emailHash := utils.hashEmail(email)
+		emailHash := utils.HashEmail(email)
 
 		if !ttlStore.Exists(email) {
 			logging.WarnLog("Registration verify failed: token expired or used [%s]", emailHash)

@@ -10,6 +10,7 @@ import (
 	"github.com/Goofygiraffe06/zinc/internal/config"
 	"github.com/Goofygiraffe06/zinc/internal/logging"
 	"github.com/Goofygiraffe06/zinc/internal/models"
+	"github.com/Goofygiraffe06/zinc/internal/utils"
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 	"github.com/go-playground/validator/v10"
@@ -36,7 +37,7 @@ func RegisterInitHandler(userStore *store.SQLiteStore, ttlStore *ephemeral.TTLSt
 		}
 
 		req.Email = strings.ToLower(strings.TrimSpace(req.Email))
-		emailHash := utils.hashEmail(req.Email)
+		emailHash := utils.HashEmail(req.Email)
 
 		if err := validate.Struct(req); err != nil {
 			logging.WarnLog("Registration init failed: invalid email format [%s]", emailHash)

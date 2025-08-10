@@ -9,6 +9,7 @@ import (
 	"github.com/Goofygiraffe06/zinc/internal/auth"
 	"github.com/Goofygiraffe06/zinc/internal/logging"
 	"github.com/Goofygiraffe06/zinc/internal/models"
+	"github.com/Goofygiraffe06/zinc/internal/utils"
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 )
@@ -36,8 +37,8 @@ func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceSt
 		req.PublicKey = strings.ReplaceAll(req.PublicKey, "\n", "")
 		req.PublicKey = strings.ReplaceAll(req.PublicKey, "\r", "")
 
-		emailHash := utils.hashEmail(req.Email)
-		usernameHash := utils.hashUsername(req.Username)
+		emailHash := utils.HashEmail(req.Email)
+		usernameHash := utils.HashUsername(req.Username)
 
 		logging.DebugLog("Registration data sanitized [%s][%s]", emailHash, usernameHash)
 
