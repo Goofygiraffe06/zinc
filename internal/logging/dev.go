@@ -25,7 +25,7 @@ func InitLogger(logFilePath string) (*os.File, error) {
 	dim := color.New(color.FgHiBlack).SprintFunc()
 	inf := color.New(color.FgGreen, color.Bold).SprintFunc()
 	dbg := color.New(color.FgCyan, color.Bold).SprintFunc()
-	wrn := color.New(color.FgYellow, color.Bold).SprintFunc()
+	wrn := color.New(color.FgMagenta, color.Bold).SprintFunc()
 	errC := color.New(color.FgRed, color.Bold).SprintFunc()
 	fat := color.New(color.FgHiRed, color.Bold, color.BgBlack).SprintFunc()
 	msgC := color.New(color.FgWhite, color.Bold).SprintFunc()
