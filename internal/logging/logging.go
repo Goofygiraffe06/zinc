@@ -10,6 +10,10 @@ func InfoLog(msg string, args ...interface{}) {
 	log.Info().Msgf(msg, args...)
 }
 
+func WarnLog(msg string, args ...interface{}) {
+	log.Warn().Msgf(msg, args...)
+}
+
 func ErrorLog(msg string, args ...interface{}) {
 	log.Error().Msgf(msg, args...)
 }
