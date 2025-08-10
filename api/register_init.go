@@ -1,8 +1,6 @@
 package api
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -18,12 +16,6 @@ import (
 )
 
 var validate = validator.New()
-
-// hashEmail creates a consistent hash for logging without exposing PII
-func hashEmail(email string) string {
-	hash := sha256.Sum256([]byte(email))
-	return hex.EncodeToString(hash[:])[:12]
-}
 
 func RegisterInitHandler(userStore *store.SQLiteStore, ttlStore *ephemeral.TTLStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +36,7 @@ func RegisterInitHandler(userStore *store.SQLiteStore, ttlStore *ephemeral.TTLSt
 		}
 
 		req.Email = strings.ToLower(strings.TrimSpace(req.Email))
-		emailHash := hashEmail(req.Email)
+		emailHash := utils.hashEmail(req.Email)
 
 		if err := validate.Struct(req); err != nil {
 			logging.WarnLog("Registration init failed: invalid email format [%s]", emailHash)

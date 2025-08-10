@@ -9,6 +9,7 @@ import (
 	"github.com/Goofygiraffe06/zinc/internal/config"
 	"github.com/Goofygiraffe06/zinc/internal/logging"
 	"github.com/Goofygiraffe06/zinc/internal/models"
+	"github.com/Goofygiraffe06/zinc/internal/utils"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -68,7 +69,7 @@ func RegisterVerifyHandler(ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.N
 			return
 		}
 
-		emailHash := hashEmail(email)
+		emailHash := utils.hashEmail(email)
 
 		if !ttlStore.Exists(email) {
 			logging.WarnLog("Registration verify failed: token expired or used [%s]", emailHash)

@@ -1,8 +1,6 @@
 package api
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -14,12 +12,6 @@ import (
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 )
-
-// hashUsername creates a consistent hash for username logging
-func hashUsername(username string) string {
-	hash := sha256.Sum256([]byte(username))
-	return hex.EncodeToString(hash[:])[:8]
-}
 
 func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -44,8 +36,8 @@ func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceSt
 		req.PublicKey = strings.ReplaceAll(req.PublicKey, "\n", "")
 		req.PublicKey = strings.ReplaceAll(req.PublicKey, "\r", "")
 
-		emailHash := hashEmail(req.Email)
-		usernameHash := hashUsername(req.Username)
+		emailHash := utils.hashEmail(req.Email)
+		usernameHash := utils.hashUsername(req.Username)
 
 		logging.DebugLog("Registration data sanitized [%s][%s]", emailHash, usernameHash)
 
