@@ -1,23 +1,33 @@
 package ephemeral
 
-import "time"
+import (
+    "time"
+    "github.com/Goofygiraffe06/zinc/internal/logging"
+)
 
 type NonceStore struct {
-	core *coreStore
+    core *coreStore
 }
 
 func NewNonceStore() *NonceStore {
-	return &NonceStore{core: newCoreStore()}
+    store := &NonceStore{core: newCoreStore()}
+    logging.DebugLog("Nonce store created")
+    return store
 }
 
 func (s *NonceStore) Set(email, nonce string, ttl time.Duration) error {
-	return s.core.set(email, nonce, ttl)
+    err := s.core.set(email, nonce, ttl)
+    if err != nil {
+        logging.DebugLog("Nonce store set failed: %v", err)
+    }
+    return err
 }
 
 func (s *NonceStore) Get(email string) (string, bool) {
-	return s.core.get(email)
+    nonce, found := s.core.get(email)
+    return nonce, found
 }
 
 func (s *NonceStore) Delete(email string) {
-	s.core.delete(email)
+    s.core.delete(email)
 }

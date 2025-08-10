@@ -1,17 +1,27 @@
 package ephemeral
 
-import "time"
+import (
+	"time"
+
+	"github.com/Goofygiraffe06/zinc/internal/logging"
+)
 
 type TTLStore struct {
 	core *coreStore
 }
 
 func NewTTLStore() *TTLStore {
-	return &TTLStore{core: newCoreStore()}
+	store := &TTLStore{core: newCoreStore()}
+	logging.DebugLog("TTL store created")
+	return store
 }
 
 func (s *TTLStore) Set(email string, ttl time.Duration) error {
-	return s.core.set(email, "", ttl)
+	err := s.core.set(email, "", ttl)
+	if err != nil {
+		logging.DebugLog("TTL store set failed: %v", err)
+	}
+	return err
 }
 
 func (s *TTLStore) Exists(email string) bool {
