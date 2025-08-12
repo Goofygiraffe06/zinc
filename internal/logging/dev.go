@@ -67,7 +67,7 @@ func InitLogger(logFilePath string) (*os.File, error) {
 		return valC(fmt.Sprintf("%s", i))
 	}
 
-	zerolog.TimeFieldFormat = "12:12:12"
+	zerolog.TimeFieldFormat = "15:04:05"
 
 	// Multi-writer: console (colors) + file (JSON)
 	multi := zerolog.MultiLevelWriter(consoleWriter, file)
