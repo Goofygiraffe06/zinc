@@ -15,6 +15,30 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+func RequestLogger() func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		fn := func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			next.ServeHTTP(ww, r)
+			duration := time.Since(start)
+
+			logMsg := "%s %s %d %v"
+			args := []interface{}{r.Method, r.URL.Path, ww.Status(), duration}
+
+			switch {
+			case ww.Status() >= 500:
+				logging.ErrorLog(logMsg, args...)
+			case ww.Status() >= 400:
+				logging.WarnLog(logMsg, args...)
+			default:
+				logging.InfoLog(logMsg, args...)
+			}
+		}
+		return http.HandlerFunc(fn)
+	}
+}
+
 func main() {
 	startTime := time.Now()
 
@@ -37,6 +61,7 @@ func main() {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
+	router.Use(RequestLogger())
 
 	// Initialize signing keys
 	auth.InitSigningKey()
