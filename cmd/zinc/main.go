@@ -13,6 +13,7 @@ import (
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 )
 
 func RequestLogger() func(next http.Handler) http.Handler {
@@ -62,6 +63,15 @@ func main() {
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
 	router.Use(RequestLogger())
+
+	router.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
 
 	// Initialize signing keys
 	auth.InitSigningKey()
