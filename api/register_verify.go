@@ -8,6 +8,7 @@ import (
 	"github.com/Goofygiraffe06/zinc/internal/auth"
 	"github.com/Goofygiraffe06/zinc/internal/config"
 	"github.com/Goofygiraffe06/zinc/internal/logging"
+	"github.com/Goofygiraffe06/zinc/internal/manager"
 	"github.com/Goofygiraffe06/zinc/internal/models"
 	"github.com/Goofygiraffe06/zinc/internal/utils"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
@@ -15,7 +16,7 @@ import (
 )
 
 // RegisterVerifyHandler handles verification of magic-link tokens.
-func RegisterVerifyHandler(ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.NonceStore) http.HandlerFunc {
+func RegisterVerifyHandler(ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.NonceStore, mgr *manager.WorkManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
