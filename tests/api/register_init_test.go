@@ -10,6 +10,7 @@ import (
 
 	"github.com/Goofygiraffe06/zinc/api"
 	"github.com/Goofygiraffe06/zinc/internal/auth"
+	"github.com/Goofygiraffe06/zinc/internal/manager"
 	"github.com/Goofygiraffe06/zinc/internal/models"
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
@@ -59,7 +60,7 @@ func TestRegisterInitHandler(t *testing.T) {
 		userStore, ephemeralStore, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(userStore, ephemeralStore)
+		handler := api.RegisterInitHandler(userStore, ephemeralStore, manager.NewWorkManager())
 		rr := makeRequest(t, handler, map[string]string{"email": "test@example.com"})
 
 		if rr.Code != http.StatusOK {
@@ -83,7 +84,7 @@ func TestRegisterInitHandler(t *testing.T) {
 		userStore, ephemeralStore, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(userStore, ephemeralStore)
+		handler := api.RegisterInitHandler(userStore, ephemeralStore, manager.NewWorkManager())
 		rr := makeRequest(t, handler, map[string]string{})
 
 		if rr.Code != http.StatusBadRequest {
@@ -95,7 +96,7 @@ func TestRegisterInitHandler(t *testing.T) {
 		userStore, ephemeralStore, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(userStore, ephemeralStore)
+		handler := api.RegisterInitHandler(userStore, ephemeralStore, manager.NewWorkManager())
 		rr := makeRequest(t, handler, map[string]string{"email": ""})
 
 		if rr.Code != http.StatusBadRequest {
@@ -116,7 +117,7 @@ func TestRegisterInitHandler(t *testing.T) {
 			t.Fatalf("failed to add user: %v", err)
 		}
 
-		handler := api.RegisterInitHandler(userStore, ephemeralStore)
+		handler := api.RegisterInitHandler(userStore, ephemeralStore, manager.NewWorkManager())
 		rr := makeRequest(t, handler, map[string]string{"email": "bob@example.com"})
 
 		if rr.Code != http.StatusConflict {
@@ -128,7 +129,7 @@ func TestRegisterInitHandler(t *testing.T) {
 		userStore, ephemeralStore, cleanup := setup(t)
 		defer cleanup()
 
-		handler := api.RegisterInitHandler(userStore, ephemeralStore)
+		handler := api.RegisterInitHandler(userStore, ephemeralStore, manager.NewWorkManager())
 		req := httptest.NewRequest(http.MethodPost, "/register/init", bytes.NewBufferString(`not-json`))
 		req.Header.Set("Content-Type", "application/json")
 		rr := httptest.NewRecorder()

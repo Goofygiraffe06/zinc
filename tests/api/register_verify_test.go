@@ -12,6 +12,7 @@ import (
 	"github.com/Goofygiraffe06/zinc/api"
 	"github.com/Goofygiraffe06/zinc/internal/auth"
 	"github.com/Goofygiraffe06/zinc/internal/config"
+	"github.com/Goofygiraffe06/zinc/internal/manager"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -48,7 +49,7 @@ func makeVerifyRequest(t *testing.T, handler http.HandlerFunc, token string) *ht
 func TestRegisterVerifyHandler(t *testing.T) {
 	ttlStore := ephemeral.NewTTLStore()
 	nonceStore := ephemeral.NewNonceStore()
-	handler := api.RegisterVerifyHandler(ttlStore, nonceStore)
+	handler := api.RegisterVerifyHandler(ttlStore, nonceStore, manager.NewWorkManager())
 
 	t.Run("missing token in query", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/register/verify", nil)
