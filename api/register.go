@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -8,13 +9,14 @@ import (
 
 	"github.com/Goofygiraffe06/zinc/internal/auth"
 	"github.com/Goofygiraffe06/zinc/internal/logging"
+	"github.com/Goofygiraffe06/zinc/internal/manager"
 	"github.com/Goofygiraffe06/zinc/internal/models"
 	"github.com/Goofygiraffe06/zinc/internal/utils"
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 )
 
-func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceStore) http.HandlerFunc {
+func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceStore, mgr *manager.WorkManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
@@ -61,13 +63,39 @@ func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceSt
 			return
 		}
 
-		// Verify signature
+		// Verify signature (offload to crypto pool)
 		sigStart := time.Now()
-		valid, err := auth.VerifySignature(req.PublicKey, req.Nonce, req.Signature)
+		var (
+			valid bool
+			verr  error
+		)
+		done := make(chan struct{})
+		_ = mgr.SubmitCrypto(func(ctx context.Context) {
+			defer close(done)
+			// Bound the verification time per request
+			authCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			// Use a small goroutine to respect authCtx even if VerifySignature is CPU-bound
+			resultCh := make(chan struct{})
+			go func() {
+				valid, verr = auth.VerifySignature(req.PublicKey, req.Nonce, req.Signature)
+				close(resultCh)
+			}()
+			select {
+			case <-authCtx.Done():
+				verr = authCtx.Err()
+			case <-resultCh:
+			}
+		})
+		select {
+		case <-done:
+		case <-time.After(6 * time.Second): // hard cap
+			verr = context.DeadlineExceeded
+		}
 		sigDuration := time.Since(sigStart)
 
-		if err != nil {
-			logging.ErrorLog("Registration complete failed: signature error [%s]: %v", emailHash, err)
+		if verr != nil {
+			logging.ErrorLog("Registration complete failed: signature error [%s]: %v", emailHash, verr)
 			respondJSON(w, http.StatusForbidden, models.ErrorResponse{Error: "Invalid signature"})
 			return
 		}
@@ -78,18 +106,43 @@ func RegisterHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceSt
 			return
 		}
 
-		// Create user
+		// Create user (offload to DB pool)
 		dbStart := time.Now()
-		if err := userStore.AddUser(models.User{
-			Email:     req.Email,
-			Username:  req.Username,
-			PublicKey: req.PublicKey,
-		}); err != nil {
-			logging.ErrorLog("Registration complete failed: database error [%s][%s]: %v", emailHash, usernameHash, err)
+		var dbErr error
+		dbDone := make(chan struct{})
+		_ = mgr.SubmitDB(func(ctx context.Context) {
+			defer close(dbDone)
+			// Tight bound to avoid blocking HTTP goroutine
+			ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			// Since sqlite calls are blocking, we run Exec in a goroutine and wait.
+			resultCh := make(chan error, 1)
+			go func() {
+				resultCh <- userStore.AddUser(models.User{
+					Email:     req.Email,
+					Username:  req.Username,
+					PublicKey: req.PublicKey,
+				})
+			}()
+			select {
+			case <-ctx.Done():
+				dbErr = ctx.Err()
+			case dbErr = <-resultCh:
+			}
+		})
+		select {
+		case <-dbDone:
+		case <-time.After(4 * time.Second):
+			dbErr = context.DeadlineExceeded
+		}
+		dbDuration := time.Since(dbStart)
+
+		// On DB error, report and exit
+		if dbErr != nil {
+			logging.ErrorLog("Registration complete failed: database error [%s][%s]: %v", emailHash, usernameHash, dbErr)
 			respondJSON(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to save user"})
 			return
 		}
-		dbDuration := time.Since(dbStart)
 
 		// Clean up nonce
 		nonceStore.Delete(req.Email)

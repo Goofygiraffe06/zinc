@@ -9,6 +9,7 @@ import (
 
 	"github.com/Goofygiraffe06/zinc/api"
 	"github.com/Goofygiraffe06/zinc/internal/auth"
+	"github.com/Goofygiraffe06/zinc/internal/manager"
 	"github.com/Goofygiraffe06/zinc/internal/models"
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
@@ -65,7 +66,7 @@ func TestAuthInitHandler(t *testing.T) {
 			t.Fatalf("failed to add user: %v", err)
 		}
 
-		handler := api.AuthInitHandler(userStore, nonceStore)
+		handler := api.AuthInitHandler(userStore, nonceStore, manager.NewWorkManager())
 		rr := makeAuthInitRequest(t, handler, map[string]string{"email": "alice@example.com"})
 
 		if rr.Code != http.StatusOK {
@@ -85,7 +86,7 @@ func TestAuthInitHandler(t *testing.T) {
 		userStore, nonceStore, cleanup := setupAuthInit(t)
 		defer cleanup()
 
-		handler := api.AuthInitHandler(userStore, nonceStore)
+		handler := api.AuthInitHandler(userStore, nonceStore, manager.NewWorkManager())
 		rr := makeAuthInitRequest(t, handler, map[string]string{"email": "nobody@example.com"})
 
 		if rr.Code != http.StatusOK {
@@ -105,7 +106,7 @@ func TestAuthInitHandler(t *testing.T) {
 		userStore, nonceStore, cleanup := setupAuthInit(t)
 		defer cleanup()
 
-		handler := api.AuthInitHandler(userStore, nonceStore)
+		handler := api.AuthInitHandler(userStore, nonceStore, manager.NewWorkManager())
 		rr := makeAuthInitRequest(t, handler, map[string]string{})
 
 		if rr.Code != http.StatusBadRequest {
@@ -117,7 +118,7 @@ func TestAuthInitHandler(t *testing.T) {
 		userStore, nonceStore, cleanup := setupAuthInit(t)
 		defer cleanup()
 
-		handler := api.AuthInitHandler(userStore, nonceStore)
+		handler := api.AuthInitHandler(userStore, nonceStore, manager.NewWorkManager())
 		rr := makeAuthInitRequest(t, handler, map[string]string{"email": ""})
 
 		if rr.Code != http.StatusBadRequest {
@@ -129,7 +130,7 @@ func TestAuthInitHandler(t *testing.T) {
 		userStore, nonceStore, cleanup := setupAuthInit(t)
 		defer cleanup()
 
-		handler := api.AuthInitHandler(userStore, nonceStore)
+		handler := api.AuthInitHandler(userStore, nonceStore, manager.NewWorkManager())
 		req := httptest.NewRequest(http.MethodPost, "/auth/init", bytes.NewBufferString(`not-json`))
 		req.Header.Set("Content-Type", "application/json")
 		rr := httptest.NewRecorder()
