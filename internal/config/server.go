@@ -58,6 +58,42 @@ func WorkerQueueSize() int {
 	return parseIntEnv("WORKER_QUEUE_SIZE", 1024)
 }
 
+// SMTPListenAddr returns the address the SMTP server listens on.
+// Example values: ":2525" (default), "127.0.0.1:2525".
+func SMTPListenAddr() string {
+	return GetEnv("SMTP_LISTEN_ADDR", ":2525")
+}
+
+// SMTPDomain returns the domain we present for SMTP and accept RCPTs for.
+// Defaults to "zinc.org".
+func SMTPDomain() string {
+	return GetEnv("SMTP_DOMAIN", "zinc.org")
+}
+
+// SMTPRecipientPrefix returns the required local-part prefix before the plus tag.
+// Only addresses of the form verify+<token>@domain are processed.
+func SMTPRecipientPrefix() string {
+	return GetEnv("SMTP_RECIPIENT_PREFIX", "verify")
+}
+
+// SMTPMaxRecipients limits RCPT TO count per message.
+func SMTPMaxRecipients() int {
+	return parseIntEnv("SMTP_MAX_RECIPIENTS", 5)
+}
+
+// SMTPMaxMessageBytes limits the message size. We ignore bodies, but still cap input.
+func SMTPMaxMessageBytes() int {
+	v := GetEnv("SMTP_MAX_MESSAGE_BYTES", "1MB")
+	n, err := parseBytes(v)
+	if err != nil || n <= 0 {
+		return 1 << 20 // 1MB
+	}
+	if n > int64(int(^uint(0)>>1)) { // clamp to max int
+		n = int64(int(^uint(0) >> 1))
+	}
+	return int(n)
+}
+
 func parseIntEnv(key string, def int) int {
 	v := os.Getenv(key)
 	if v == "" {

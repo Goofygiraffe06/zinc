@@ -10,6 +10,7 @@ import (
 	"github.com/Goofygiraffe06/zinc/internal/config"
 	"github.com/Goofygiraffe06/zinc/internal/logging"
 	"github.com/Goofygiraffe06/zinc/internal/manager"
+	smtpserver "github.com/Goofygiraffe06/zinc/internal/smtp"
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 	"github.com/go-chi/chi/v5"
@@ -128,9 +129,18 @@ func main() {
 
 	// API Routes
 	router.Post("/register/init", api.RegisterInitHandler(userStore, ttlStore, mgr))
-	router.Get("/register/verify", api.RegisterVerifyHandler(ttlStore, nonceStore, mgr))
+	// HTTP magic-link verification removed in favor of SMTP subaddress verification
 	router.Post("/register", api.RegisterHandler(userStore, nonceStore, mgr))
 	router.Post("/login/init", api.AuthInitHandler(userStore, nonceStore, mgr))
+
+	// Start SMTP verification listener
+	smtpBackend := smtpserver.NewBackend(ttlStore, nonceStore, mgr, config.SMTPDomain())
+	smtpSrv := smtpserver.NewServer(smtpBackend)
+	if err := smtpSrv.Start(); err != nil {
+		logging.ErrorLog("SMTP server failed to start: %v", err)
+	} else {
+		defer smtpSrv.Stop()
+	}
 
 	port := ":" + config.GetEnv("PORT", "8080")
 	totalStartupTime := time.Since(startTime)

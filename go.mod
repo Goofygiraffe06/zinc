@@ -3,6 +3,7 @@ module github.com/Goofygiraffe06/zinc
 go 1.24.4
 
 require (
+	github.com/emersion/go-smtp v0.24.0
 	github.com/fatih/color v1.18.0
 	github.com/go-chi/chi/v5 v5.2.2
 	github.com/go-chi/cors v1.2.2
@@ -14,6 +15,7 @@ require (
 )
 
 require (
+	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
