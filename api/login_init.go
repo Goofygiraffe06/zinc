@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"github.com/Goofygiraffe06/zinc/internal/auth"
+	"github.com/Goofygiraffe06/zinc/internal/manager"
 	"github.com/Goofygiraffe06/zinc/internal/models"
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 )
 
-func AuthInitHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceStore) http.HandlerFunc {
+func AuthInitHandler(userStore *store.SQLiteStore, nonceStore *ephemeral.NonceStore, mgr *manager.WorkManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req models.LoginInitRequest
 

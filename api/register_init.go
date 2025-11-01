@@ -9,6 +9,7 @@ import (
 	"github.com/Goofygiraffe06/zinc/internal/auth"
 	"github.com/Goofygiraffe06/zinc/internal/config"
 	"github.com/Goofygiraffe06/zinc/internal/logging"
+	"github.com/Goofygiraffe06/zinc/internal/manager"
 	"github.com/Goofygiraffe06/zinc/internal/models"
 	"github.com/Goofygiraffe06/zinc/internal/utils"
 	"github.com/Goofygiraffe06/zinc/store"
@@ -18,7 +19,7 @@ import (
 
 var validate = validator.New()
 
-func RegisterInitHandler(userStore *store.SQLiteStore, ttlStore *ephemeral.TTLStore) http.HandlerFunc {
+func RegisterInitHandler(userStore *store.SQLiteStore, ttlStore *ephemeral.TTLStore, mgr *manager.WorkManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 

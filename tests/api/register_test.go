@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Goofygiraffe06/zinc/api"
+	"github.com/Goofygiraffe06/zinc/internal/manager"
 	"github.com/Goofygiraffe06/zinc/internal/models"
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
@@ -37,7 +38,7 @@ func TestRegisterHandler(t *testing.T) {
 	defer userStore.Close()
 
 	nonceStore := ephemeral.NewNonceStore()
-	handler := api.RegisterHandler(userStore, nonceStore)
+	handler := api.RegisterHandler(userStore, nonceStore, manager.NewWorkManager())
 
 	email := "test@example.com"
 	username := "testuser"
