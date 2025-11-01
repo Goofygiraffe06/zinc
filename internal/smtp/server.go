@@ -242,6 +242,9 @@ func (s *Server) Stop() {
 // Helper utilities
 func splitAddress(addr string) (local, domain string) {
 	addr = strings.TrimSpace(addr)
+	// Strip angle brackets if present (e.g., <user@domain> -> user@domain)
+	addr = strings.Trim(addr, "<>")
+	addr = strings.TrimSpace(addr)
 	if i := strings.LastIndex(addr, "@"); i >= 0 {
 		return addr[:i], addr[i+1:]
 	}
