@@ -35,13 +35,11 @@ func (s *NonceStore) Delete(email string) {
 
 // DeleteIfExists atomically checks existence and deletes the key if it exists.
 // Returns true if the key existed and was deleted, false otherwise.
-func (s *TTLStore) DeleteIfExists(key string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, exists := s.data[key]; !exists {
+func (s *NonceStore) DeleteIfExists(email string) bool {
+	_, exists := s.core.get(email)
+	if !exists {
 		return false
 	}
-	delete(s.data, key)
+	s.core.delete(email)
 	return true
 }
