@@ -188,10 +188,6 @@ func (s *verifyMailboxSession) Data(r io.Reader) error {
 	return nil
 }
 
-// processVerifyToken mirrors the logic of api.RegisterVerifyHandler, using the JWT token
-// in the plus-address to locate the email subject, validate TTL presence, and issue a nonce.
-// SECURITY: Validates that the sender's email (MAIL FROM) matches the token's subject (email),
-// preventing attackers from using stolen/intercepted tokens to verify other users' emails.
 func processVerifyToken(_ context.Context, tokenStr string, senderEmail string, remoteAddr string, ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.NonceStore, rateLimiter *rateLimiter) {
 	// Normalize sender email
 	senderEmail = strings.ToLower(strings.TrimSpace(senderEmail))
@@ -239,18 +235,11 @@ func processVerifyToken(_ context.Context, tokenStr string, senderEmail string, 
 	email = strings.ToLower(strings.TrimSpace(email))
 	emailHash := utils.HashEmail(email)
 
-	// CRITICAL SECURITY CHECK: Verify sender matches token's subject.
-	// This prevents attackers from using someone else's token to complete verification.
-	// Example attack: attacker intercepts victim's token, sends it from their own email.
 	if senderEmail != email {
 		logging.WarnLog("SMTP verify failed: sender mismatch [token=%s, sender=%s]", emailHash, utils.HashEmail(senderEmail))
 		return
 	}
 
-	// This proves the token was issued for this email via /register/init.
-	// Prevents token reuse attacks where attacker uses their token for victim's email.
-	// Note: This check-then-delete is not atomic and may allow race conditions in high concurrency.
-	// Consider implementing an atomic DeleteIfExists method in TTLStore for production use.
 	if !ttlStore.Exists(email) {
 		logging.WarnLog("SMTP verify failed: token expired or used [%s]", emailHash)
 		return
