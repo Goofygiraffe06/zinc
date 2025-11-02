@@ -11,14 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Goofygiraffe06/zinc/internal/auth"
 	"github.com/Goofygiraffe06/zinc/internal/config"
 	"github.com/Goofygiraffe06/zinc/internal/logging"
 	"github.com/Goofygiraffe06/zinc/internal/manager"
 	"github.com/Goofygiraffe06/zinc/internal/utils"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 	smtpcore "github.com/emersion/go-smtp"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 // rateLimiter provides simple in-memory rate limiting for verification attempts.
@@ -112,7 +110,7 @@ func (s *verifyMailboxSession) Mail(from string, opts *smtpcore.MailOptions) err
 }
 
 func (s *verifyMailboxSession) Rcpt(to string, _ *smtpcore.RcptOptions) error {
-	// Accept only addresses verify+<token>@domain
+	// Accept only addresses verify+<nonce>@domain
 	// We ignore case for local-part prefix, but require domain match.
 	local, dom := splitAddress(to)
 	if !domainEquals(dom, s.domain) {
@@ -121,7 +119,7 @@ func (s *verifyMailboxSession) Rcpt(to string, _ *smtpcore.RcptOptions) error {
 		return nil
 	}
 
-	// local should be like: prefix+token
+	// local should be like: prefix+nonce
 	prefixLower := strings.ToLower(s.recipientPrefix)
 	parts := strings.SplitN(local, "+", 2)
 	if len(parts) != 2 || strings.ToLower(parts[0]) != prefixLower {
@@ -164,22 +162,22 @@ func (s *verifyMailboxSession) Data(r io.Reader) error {
 		if len(parts) != 2 {
 			continue
 		}
-		token := strings.TrimSpace(parts[1])
-		if token == "" {
+		nonce := strings.TrimSpace(parts[1])
+		if nonce == "" {
 			continue
 		}
 
-		// Capture sender address to verify token ownership
+		// Capture sender address to verify nonce ownership
 		senderEmail := s.from
 		remoteAddr := s.remoteAddr
 
-		// Process token asynchronously on SMTP pool with a bounded timeout.
+		// Process nonce asynchronously on SMTP pool with a bounded timeout.
 		_ = s.mgr.SubmitSMTP(func(ctx context.Context) {
-			// Bound total processing time per token
+			// Bound total processing time per nonce
 			if !manager.RunWithTimeout(ctx, 5*time.Second, func(ctx context.Context) {
-				processVerifyToken(ctx, token, senderEmail, remoteAddr, s.ttlStore, s.nonceStore, s.rateLimiter)
+				processVerifyNonce(ctx, nonce, senderEmail, remoteAddr, s.ttlStore, s.nonceStore, s.rateLimiter)
 			}) {
-				logging.WarnLog("SMTP token processing timeout token=%s", utils.HashEmail(token))
+				logging.WarnLog("SMTP nonce processing timeout nonce=%s", utils.HashEmail(nonce))
 			}
 		})
 	}
@@ -188,7 +186,7 @@ func (s *verifyMailboxSession) Data(r io.Reader) error {
 	return nil
 }
 
-func processVerifyToken(_ context.Context, tokenStr string, senderEmail string, remoteAddr string, ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.NonceStore, rateLimiter *rateLimiter) {
+func processVerifyNonce(_ context.Context, nonceStr string, senderEmail string, remoteAddr string, ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.NonceStore, rateLimiter *rateLimiter) {
 	// Normalize sender email
 	senderEmail = strings.ToLower(strings.TrimSpace(senderEmail))
 	// Strip angle brackets if present
@@ -206,56 +204,26 @@ func processVerifyToken(_ context.Context, tokenStr string, senderEmail string, 
 		return
 	}
 
-	// Parse and validate token
-	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-		if token.Method.Alg() != jwt.SigningMethodEdDSA.Alg() {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return auth.GetSigningKey().PublicKey, nil
-	}, jwt.WithIssuer(config.JWTVerificationIssuer()), jwt.WithValidMethods([]string{"EdDSA"}))
-	if err != nil || !token.Valid {
-		logging.WarnLog("SMTP verify failed: invalid token")
-		return
-	}
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		logging.WarnLog("SMTP verify failed: invalid claims")
-		return
-	}
-	emailInterface, exists := claims["sub"]
-	if !exists {
-		logging.WarnLog("SMTP verify failed: missing subject")
-		return
-	}
-	email, ok := emailInterface.(string)
-	if !ok || strings.TrimSpace(email) == "" {
-		logging.WarnLog("SMTP verify failed: invalid subject format")
-		return
-	}
-	email = strings.ToLower(strings.TrimSpace(email))
-	emailHash := utils.HashEmail(email)
+	emailHash := utils.HashEmail(senderEmail)
 
-	if senderEmail != email {
-		logging.WarnLog("SMTP verify failed: sender mismatch [token=%s, sender=%s]", emailHash, utils.HashEmail(senderEmail))
+	// Validate nonce - check if email:nonce combination exists in TTL store
+	key := senderEmail + ":" + nonceStr
+	if !ttlStore.Exists(key) {
+		logging.WarnLog("SMTP verify failed: nonce expired or invalid [%s]", emailHash)
 		return
 	}
 
-	if !ttlStore.Exists(email) {
-		logging.WarnLog("SMTP verify failed: token expired or used [%s]", emailHash)
-		return
-	}
-	// Clean up the TTL store entry and generate a cryptographically secure nonce.
-	// The nonce lets the client complete registration without an HTTP verify step.
-	ttlStore.Delete(email)
+	// Clean up the TTL store entry and generate a cryptographically secure nonce for registration completion
+	ttlStore.Delete(key)
 
-	// Generate cryptographically secure random nonce instead of reusing the token
-	nonce, err := generateSecureNonce()
+	// Generate cryptographically secure random nonce for the actual registration signature
+	registrationNonce, err := generateSecureNonce()
 	if err != nil {
 		logging.ErrorLog("SMTP verify failed: nonce generation [%s]: %v", emailHash, err)
 		return
 	}
 
-	if err := nonceStore.Set(email, nonce, config.JWTRegistrationExpiresIn()*time.Minute); err != nil {
+	if err := nonceStore.Set(senderEmail, registrationNonce, config.JWTRegistrationExpiresIn()*time.Minute); err != nil {
 		logging.ErrorLog("SMTP verify failed: nonce store [%s]: %v", emailHash, err)
 		return
 	}

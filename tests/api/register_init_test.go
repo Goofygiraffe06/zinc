@@ -2,14 +2,12 @@ package api_test
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/Goofygiraffe06/zinc/api"
-	"github.com/Goofygiraffe06/zinc/internal/auth"
 	"github.com/Goofygiraffe06/zinc/internal/manager"
 	"github.com/Goofygiraffe06/zinc/internal/models"
 	"github.com/Goofygiraffe06/zinc/store"
@@ -50,12 +48,6 @@ func makeRequest(t *testing.T, handler http.HandlerFunc, payload any) *httptest.
 }
 
 func TestRegisterInitHandler(t *testing.T) {
-	auth.InitSigningKey()
-	key := auth.GetSigningKey()
-	t.Setenv("JWT_SECRET", base64.StdEncoding.EncodeToString(key.PrivateKey))
-	t.Setenv("JWT_ISSUER", "zinc-test")
-	t.Setenv("JWT_EXPIRES_IN", "1") // in minutes
-
 	t.Run("valid registration", func(t *testing.T) {
 		userStore, ephemeralStore, cleanup := setup(t)
 		defer cleanup()
@@ -75,8 +67,12 @@ func TestRegisterInitHandler(t *testing.T) {
 		if err := json.NewDecoder(rr.Body).Decode(&res); err != nil {
 			t.Fatalf("response not valid JSON: %v", err)
 		}
-		if res["token"] == "" {
-			t.Errorf("expected non-empty token in response, got %v", res)
+		if res["nonce"] == "" {
+			t.Errorf("expected non-empty nonce in response, got %v", res)
+		}
+		// Verify nonce is 64 hex characters (32 bytes)
+		if len(res["nonce"]) != 64 {
+			t.Errorf("expected nonce to be 64 hex characters, got length %d", len(res["nonce"]))
 		}
 	})
 
