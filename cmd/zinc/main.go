@@ -57,7 +57,6 @@ func MaxBytes(n int64) func(next http.Handler) http.Handler {
 func main() {
 	startTime := time.Now()
 
-	// Initialize logger
 	logFile := "zinc.log"
 	f, err := logging.InitLogger(logFile)
 	if err != nil {
@@ -72,7 +71,6 @@ func main() {
 	logging.InfoLog("ZINC Authentication Server starting")
 	logging.InfoLog("Process ID: %d, Log file: %s", os.Getpid(), logFile)
 
-	// Initialize HTTP router
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
@@ -88,10 +86,8 @@ func main() {
 		MaxAge:           300,
 	}))
 
-	// Initialize signing keys
 	auth.InitSigningKey()
 
-	// Secure SQLite DB file if it exists
 	dbFile := "zinc.db"
 	if _, err := os.Stat(dbFile); err == nil {
 		if err := os.Chmod(dbFile, 0600); err != nil {
@@ -102,11 +98,9 @@ func main() {
 		}
 	}
 
-	// Initialize ephemeral stores
 	ttlStore := ephemeral.NewTTLStore()
 	nonceStore := ephemeral.NewNonceStore()
 
-	// Initialize worker manager (DB, Crypto, SMTP pools)
 	mgr := manager.NewWorkManager(
 		manager.WithDBWorkers(config.DBWorkerCount()),
 		manager.WithCryptoWorkers(config.CryptoWorkerCount()),
@@ -114,26 +108,21 @@ func main() {
 	)
 	defer mgr.Close()
 
-	// SQLite setup
 	userStore, err := store.NewSQLiteStore(dbFile)
 	if err != nil {
 		logging.FatalLog("CRITICAL: Database connection failed - service cannot start: %v", err)
 	}
 
-	// Health check endpoint
 	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok","service":"zinc-auth","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `"}`))
 	})
 
-	// API Routes
 	router.Post("/register/init", api.RegisterInitHandler(userStore, ttlStore, mgr))
-	// HTTP magic-link verification removed in favor of SMTP subaddress verification
 	router.Post("/register", api.RegisterHandler(userStore, nonceStore, mgr))
 	router.Post("/login/init", api.AuthInitHandler(userStore, nonceStore, mgr))
 
-	// Start SMTP verification listener
 	smtpBackend := smtpserver.NewBackend(ttlStore, nonceStore, mgr, config.SMTPDomain())
 	smtpSrv := smtpserver.NewServer(smtpBackend)
 	if err := smtpSrv.Start(); err != nil {
@@ -148,7 +137,6 @@ func main() {
 	logging.InfoLog("ZINC server startup completed in %v", totalStartupTime)
 	logging.InfoLog("Server ready - listening on port %s", port)
 
-	// Configure HTTP server with timeouts
 	srv := &http.Server{
 		Addr:              port,
 		Handler:           router,
