@@ -49,7 +49,6 @@ func VerifyMagicToken(tokenStr string) (*jwt.Token, error) {
 	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 		// Enforce that we only accept EdDSA signed tokens
 		if _, ok := token.Method.(*jwt.SigningMethodEd25519); !ok {
-			// Log at debug level for security attempts (could be noisy in production)
 			logging.DebugLog("Token verification failed: unexpected signing method %T", token.Method)
 			return nil, errors.New("unexpected signing method")
 		}
@@ -57,12 +56,10 @@ func VerifyMagicToken(tokenStr string) (*jwt.Token, error) {
 	})
 
 	if err != nil {
-		// Only log token parsing errors at debug level to reduce noise
 		logging.DebugLog("Token verification failed: %v", err)
 		return nil, err
 	}
 
-	// Optional: Log successful verifications only in debug mode
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		if sub, exists := claims["sub"].(string); exists {
 			emailHash := utils.HashEmail(sub)
