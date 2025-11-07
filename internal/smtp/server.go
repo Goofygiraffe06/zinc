@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Goofygiraffe06/zinc/internal/config"
+	"github.com/Goofygiraffe06/zinc/internal/controller"
 	"github.com/Goofygiraffe06/zinc/internal/logging"
 	"github.com/Goofygiraffe06/zinc/internal/manager"
 	"github.com/Goofygiraffe06/zinc/internal/utils"
@@ -86,7 +87,7 @@ type verifyMailboxSession struct {
 	from            string
 	recipients      []string
 	ttlStore        *ephemeral.TTLStore
-	nonceStore      *ephemeral.NonceStore
+	registry        *controller.VerificationRegistry
 	mgr             *manager.WorkManager
 	rateLimiter     *rateLimiter
 	acceptedCount   int
@@ -175,7 +176,7 @@ func (s *verifyMailboxSession) Data(r io.Reader) error {
 		_ = s.mgr.SubmitSMTP(func(ctx context.Context) {
 			// Bound total processing time per nonce
 			if !manager.RunWithTimeout(ctx, 5*time.Second, func(ctx context.Context) {
-				processVerifyNonce(ctx, nonce, senderEmail, remoteAddr, s.ttlStore, s.nonceStore, s.rateLimiter)
+				processVerifyNonce(ctx, nonce, senderEmail, remoteAddr, s.ttlStore, s.registry, s.rateLimiter)
 			}) {
 				logging.WarnLog("SMTP nonce processing timeout nonce=%s", utils.HashEmail(nonce))
 			}
@@ -186,7 +187,7 @@ func (s *verifyMailboxSession) Data(r io.Reader) error {
 	return nil
 }
 
-func processVerifyNonce(_ context.Context, nonceStr string, senderEmail string, remoteAddr string, ttlStore *ephemeral.TTLStore, nonceStore *ephemeral.NonceStore, rateLimiter *rateLimiter) {
+func processVerifyNonce(_ context.Context, nonceStr string, senderEmail string, remoteAddr string, ttlStore *ephemeral.TTLStore, registry *controller.VerificationRegistry, rateLimiter *rateLimiter) {
 	// Normalize sender email
 	senderEmail = strings.ToLower(strings.TrimSpace(senderEmail))
 	// Strip angle brackets if present
@@ -205,29 +206,40 @@ func processVerifyNonce(_ context.Context, nonceStr string, senderEmail string, 
 	}
 
 	emailHash := utils.HashEmail(senderEmail)
+	nonceHash := utils.HashEmail(nonceStr)
 
-	// Validate nonce - check if email:nonce combination exists in TTL store
-	key := senderEmail + ":" + nonceStr
-	if !ttlStore.Exists(key) {
-		logging.WarnLog("SMTP verify failed: nonce expired or invalid [%s]", emailHash)
+	// Verify sender email matches expected email from registration request
+	expectedEmailKey := "expected:" + nonceStr
+	expectedEmail, exists := ttlStore.Get(expectedEmailKey)
+	if !exists {
+		logging.WarnLog("SMTP verify failed: no registration pending for nonce [%s]", nonceHash)
 		return
 	}
 
-	// Clean up the TTL store entry and generate a cryptographically secure nonce for registration completion
-	ttlStore.Delete(key)
+	// Normalize expected email for comparison
+	expectedEmail = strings.ToLower(strings.TrimSpace(expectedEmail))
 
-	// Generate cryptographically secure random nonce for the actual registration signature
-	registrationNonce, err := generateSecureNonce()
-	if err != nil {
-		logging.ErrorLog("SMTP verify failed: nonce generation [%s]: %v", emailHash, err)
+	if senderEmail != expectedEmail {
+		logging.WarnLog("SMTP verify failed: email mismatch sender=[%s] expected=[%s] nonce=[%s]",
+			utils.HashEmail(senderEmail), utils.HashEmail(expectedEmail), nonceHash)
 		return
 	}
 
-	if err := nonceStore.Set(senderEmail, registrationNonce, config.JWTRegistrationExpiresIn()*time.Minute); err != nil {
-		logging.ErrorLog("SMTP verify failed: nonce store [%s]: %v", emailHash, err)
+	logging.DebugLog("SMTP verify: sender validated [%s] nonce=[%s]", emailHash, nonceHash)
+
+	// CRITICAL: Store the verified email in TTLStore BEFORE firing the interrupt
+	// The API handler will wake up and immediately check this mapping
+	if err := ttlStore.SetWithValue(nonceStr, senderEmail, 3*time.Minute); err != nil {
+		logging.ErrorLog("SMTP verify failed: ttl store [%s] nonce=[%s]: %v", emailHash, nonceHash, err)
 		return
 	}
-	logging.InfoLog("SMTP verify success [%s]", emailHash)
+
+	logging.DebugLog("SMTP verify: stored proof [%s] nonce=[%s]", emailHash, nonceHash)
+
+	// Now fire the interrupt to wake up the waiting HTTP handler
+	registry.Notify(nonceStr)
+
+	logging.InfoLog("SMTP verify success [%s] nonce=[%s]", emailHash, nonceHash)
 }
 
 // generateSecureNonce creates a cryptographically secure random nonce.
@@ -242,16 +254,16 @@ func generateSecureNonce() (string, error) {
 // Backend implements the SMTP Backend for go-smtp.
 type Backend struct {
 	ttlStore    *ephemeral.TTLStore
-	nonceStore  *ephemeral.NonceStore
+	registry    *controller.VerificationRegistry
 	mgr         *manager.WorkManager
 	rateLimiter *rateLimiter
 	domain      string
 }
 
-func NewBackend(ttl *ephemeral.TTLStore, nonce *ephemeral.NonceStore, mgr *manager.WorkManager, domain string) *Backend {
+func NewBackend(ttl *ephemeral.TTLStore, registry *controller.VerificationRegistry, mgr *manager.WorkManager, domain string) *Backend {
 	return &Backend{
 		ttlStore:    ttl,
-		nonceStore:  nonce,
+		registry:    registry,
 		mgr:         mgr,
 		rateLimiter: newRateLimiter(10, 5*time.Minute),
 		domain:      domain,
@@ -267,7 +279,7 @@ func (b *Backend) NewSession(c *smtpcore.Conn) (smtpcore.Session, error) {
 	sess := &verifyMailboxSession{
 		remoteAddr:      ra,
 		ttlStore:        b.ttlStore,
-		nonceStore:      b.nonceStore,
+		registry:        b.registry,
 		mgr:             b.mgr,
 		rateLimiter:     b.rateLimiter,
 		maxRecipients:   config.SMTPMaxRecipients(),

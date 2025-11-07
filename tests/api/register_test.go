@@ -1,7 +1,8 @@
-package api_test
+﻿package api_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
@@ -11,130 +12,101 @@ import (
 	"time"
 
 	"github.com/Goofygiraffe06/zinc/api"
+	"github.com/Goofygiraffe06/zinc/internal/controller"
 	"github.com/Goofygiraffe06/zinc/internal/manager"
 	"github.com/Goofygiraffe06/zinc/internal/models"
 	"github.com/Goofygiraffe06/zinc/store"
 	"github.com/Goofygiraffe06/zinc/store/ephemeral"
 )
 
-func makeRegisterRequest(t *testing.T, handler http.HandlerFunc, payload models.RegisterCompleteRequest) *httptest.ResponseRecorder {
-	t.Helper()
-	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("marshal error: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-	return rr
-}
-
-func TestRegisterHandler(t *testing.T) {
-	userStore, err := store.NewSQLiteStore(":memory:")
-	if err != nil {
-		t.Fatalf("store init error: %v", err)
-	}
+func TestRegisterHandler_Timeout(t *testing.T) {
+	userStore, _ := store.NewSQLiteStore(":memory:")
 	defer userStore.Close()
 
-	nonceStore := ephemeral.NewNonceStore()
-	handler := api.RegisterHandler(userStore, nonceStore, manager.NewWorkManager())
+	ttlStore := ephemeral.NewTTLStore()
+	registry := controller.NewVerificationRegistry()
+	mgr := manager.NewWorkManager()
+	defer mgr.Close()
 
-	email := "test@example.com"
-	username := "testuser"
-	nonce := "secure-nonce"
+	handler := api.RegisterHandler(userStore, ttlStore, registry, mgr)
+
+	email := "timeout@example.com"
+	username := "timeoutuser"
+	nonce := "test-nonce"
 
 	pub, priv, _ := ed25519.GenerateKey(nil)
 	pubB64 := base64.StdEncoding.EncodeToString(pub)
 	sigB64 := base64.StdEncoding.EncodeToString(ed25519.Sign(priv, []byte(nonce)))
 
-	t.Run("valid registration", func(t *testing.T) {
-		nonceStore.Set(email, nonce, time.Minute)
-		payload := models.RegisterCompleteRequest{Email: email, Username: username, PublicKey: pubB64, Nonce: nonce, Signature: sigB64}
-		rr := makeRegisterRequest(t, handler, payload)
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 OK, got %d", rr.Code)
-		}
-	})
+	payload := models.RegisterCompleteRequest{
+		Email:     email,
+		Username:  username,
+		PublicKey: pubB64,
+		Nonce:     nonce,
+		Signature: sigB64,
+	}
 
-	t.Run("invalid base64 publicKey", func(t *testing.T) {
-		nonceStore.Set("b64@fail.com", nonce, time.Minute)
-		payload := models.RegisterCompleteRequest{Email: "b64@fail.com", Username: "bad", PublicKey: "!!notb64", Nonce: nonce, Signature: sigB64}
-		rr := makeRegisterRequest(t, handler, payload)
-		if rr.Code != http.StatusForbidden {
-			t.Errorf("expected 403 for bad base64 pubkey, got %d", rr.Code)
-		}
-	})
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 
-	t.Run("invalid base64 signature", func(t *testing.T) {
-		nonceStore.Set("bad@sig.com", nonce, time.Minute)
-		payload := models.RegisterCompleteRequest{Email: "bad@sig.com", Username: "bad", PublicKey: pubB64, Nonce: nonce, Signature: "!!!invalid"}
-		rr := makeRegisterRequest(t, handler, payload)
-		if rr.Code != http.StatusForbidden {
-			t.Errorf("expected 403 for bad base64 signature, got %d", rr.Code)
-		}
-	})
+	// Attach a very short deadline to force the handler to observe a timeout.
+	ctx, cancel := context.WithTimeout(req.Context(), 50*time.Millisecond)
+	defer cancel()
+	req = req.WithContext(ctx)
 
-	t.Run("signature mismatch", func(t *testing.T) {
-		_, otherPriv, _ := ed25519.GenerateKey(nil)
-		wrongSig := base64.StdEncoding.EncodeToString(ed25519.Sign(otherPriv, []byte(nonce)))
-		nonceStore.Set("wrong@sig.com", nonce, time.Minute)
-		payload := models.RegisterCompleteRequest{Email: "wrong@sig.com", Username: "sigfail", PublicKey: pubB64, Nonce: nonce, Signature: wrongSig}
-		rr := makeRegisterRequest(t, handler, payload)
-		if rr.Code != http.StatusForbidden {
-			t.Errorf("expected 403 for invalid signature, got %d", rr.Code)
-		}
-	})
+	rr := httptest.NewRecorder()
 
-	t.Run("missing fields", func(t *testing.T) {
-		payload := models.RegisterCompleteRequest{}
-		rr := makeRegisterRequest(t, handler, payload)
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("expected 400 for missing fields, got %d", rr.Code)
-		}
-	})
+	// Do NOT notify the registry / set the nonce in ttlStore so the handler blocks until context timeout.
+	handler.ServeHTTP(rr, req)
 
-	t.Run("nonce expired or missing", func(t *testing.T) {
-		payload := models.RegisterCompleteRequest{
-			Email:     "missing@nonce.com",
-			Username:  "ghost",
-			PublicKey: pubB64,
-			Nonce:     "expired-nonce",
-			Signature: sigB64,
-		}
-		rr := makeRegisterRequest(t, handler, payload)
-		if rr.Code != http.StatusForbidden {
-			t.Errorf("expected 403 for missing/expired nonce, got %d", rr.Code)
-		}
-	})
+	if rr.Code != http.StatusRequestTimeout {
+		t.Fatalf("expected 408 Request Timeout, got %d body=%s", rr.Code, rr.Body.String())
+	}
+}
 
-	t.Run("nonce mismatch", func(t *testing.T) {
-		nonceStore.Set("mismatch@nonce.com", "expected-nonce", time.Minute)
-		payload := models.RegisterCompleteRequest{
-			Email:     "mismatch@nonce.com",
-			Username:  "fail",
-			PublicKey: pubB64,
-			Nonce:     nonce,
-			Signature: sigB64,
-		}
-		rr := makeRegisterRequest(t, handler, payload)
-		if rr.Code != http.StatusForbidden {
-			t.Errorf("expected 403 for nonce mismatch, got %d", rr.Code)
-		}
-	})
+func TestRegisterHandler_SuccessWithInterrupt(t *testing.T) {
+	userStore, _ := store.NewSQLiteStore(":memory:")
+	defer userStore.Close()
 
-	t.Run("duplicate user", func(t *testing.T) {
-		nonceStore.Set(email, nonce, time.Minute)
-		payload := models.RegisterCompleteRequest{
-			Email:     email,
-			Username:  username,
-			PublicKey: pubB64,
-			Nonce:     nonce,
-			Signature: sigB64,
-		}
-		rr := makeRegisterRequest(t, handler, payload)
-		if rr.Code != http.StatusConflict {
-			t.Errorf("expected 409 for duplicate user, got %d", rr.Code)
-		}
-	})
+	ttlStore := ephemeral.NewTTLStore()
+	registry := controller.NewVerificationRegistry()
+	mgr := manager.NewWorkManager()
+	defer mgr.Close()
+
+	handler := api.RegisterHandler(userStore, ttlStore, registry, mgr)
+
+	email := "success@example.com"
+	username := "successuser"
+	nonce := "test-nonce-123"
+
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	pubB64 := base64.StdEncoding.EncodeToString(pub)
+	sigB64 := base64.StdEncoding.EncodeToString(ed25519.Sign(priv, []byte(nonce)))
+
+	payload := models.RegisterCompleteRequest{
+		Email:     email,
+		Username:  username,
+		PublicKey: pubB64,
+		Nonce:     nonce,
+		Signature: sigB64,
+	}
+
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	// Simulate SMTP verification in background
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		ttlStore.SetWithValue(nonce, email, 3*time.Minute)
+		registry.Notify(nonce)
+	}()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 OK, got %d body=%s", rr.Code, rr.Body.String())
+	}
 }

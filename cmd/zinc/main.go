@@ -8,6 +8,7 @@ import (
 	"github.com/Goofygiraffe06/zinc/api"
 	"github.com/Goofygiraffe06/zinc/internal/auth"
 	"github.com/Goofygiraffe06/zinc/internal/config"
+	"github.com/Goofygiraffe06/zinc/internal/controller"
 	"github.com/Goofygiraffe06/zinc/internal/logging"
 	"github.com/Goofygiraffe06/zinc/internal/manager"
 	smtpserver "github.com/Goofygiraffe06/zinc/internal/smtp"
@@ -101,6 +102,10 @@ func main() {
 	ttlStore := ephemeral.NewTTLStore()
 	nonceStore := ephemeral.NewNonceStore()
 
+	// Create the shared verification registry for interrupt-based registration
+	verificationRegistry := controller.NewVerificationRegistry()
+	logging.InfoLog("Verification registry initialized")
+
 	mgr := manager.NewWorkManager(
 		manager.WithDBWorkers(config.DBWorkerCount()),
 		manager.WithCryptoWorkers(config.CryptoWorkerCount()),
@@ -119,11 +124,13 @@ func main() {
 		w.Write([]byte(`{"status":"ok","service":"zinc-auth","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `"}`))
 	})
 
-	router.Post("/register/init", api.RegisterInitHandler(userStore, ttlStore, mgr))
-	router.Post("/register", api.RegisterHandler(userStore, nonceStore, mgr))
+	// API routes - new interrupt-based registration flow
+	router.Post("/register/init", api.RegisterInitHandler())
+	router.Post("/register", api.RegisterHandler(userStore, ttlStore, verificationRegistry, mgr))
 	router.Post("/login/init", api.AuthInitHandler(userStore, nonceStore, mgr))
 
-	smtpBackend := smtpserver.NewBackend(ttlStore, nonceStore, mgr, config.SMTPDomain())
+	// SMTP server with shared registry for firing interrupts
+	smtpBackend := smtpserver.NewBackend(ttlStore, verificationRegistry, mgr, config.SMTPDomain())
 	smtpSrv := smtpserver.NewServer(smtpBackend)
 	if err := smtpSrv.Start(); err != nil {
 		logging.ErrorLog("SMTP server failed to start: %v", err)
