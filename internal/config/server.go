@@ -94,6 +94,28 @@ func SMTPMaxMessageBytes() int {
 	return int(n)
 }
 
+// SMTPVerificationMode returns the verification mode for SPF checks.
+// Valid values: "unrestricted", "warn", "strict"
+func SMTPVerificationMode() string {
+	mode := strings.ToLower(strings.TrimSpace(GetEnv("SMTP_VERIFICATION_MODE", "unrestricted")))
+	switch mode {
+	case "unrestricted", "warn", "strict":
+		return mode
+	default:
+		return "unrestricted"
+	}
+}
+
+func SMTPDKIMEnabled() bool {
+	val := strings.ToLower(strings.TrimSpace(GetEnv("SMTP_DKIM_ENABLED", "true")))
+	return val == "true" || val == "1" || val == "yes"
+}
+
+func SMTPSPFEnabled() bool {
+	val := strings.ToLower(strings.TrimSpace(GetEnv("SMTP_SPF_ENABLED", "true")))
+	return val == "true" || val == "1" || val == "yes"
+}
+
 func parseIntEnv(key string, def int) int {
 	v := os.Getenv(key)
 	if v == "" {

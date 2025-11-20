@@ -3,6 +3,8 @@ module github.com/Goofygiraffe06/zinc
 go 1.24.4
 
 require (
+	blitiri.com.ar/go/spf v1.5.1
+	github.com/emersion/go-msgauth v0.7.0
 	github.com/emersion/go-smtp v0.24.0
 	github.com/fatih/color v1.18.0
 	github.com/go-chi/chi/v5 v5.2.3

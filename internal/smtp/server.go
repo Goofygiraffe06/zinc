@@ -95,12 +95,19 @@ type verifyMailboxSession struct {
 	maxMessageBytes int64
 	domain          string
 	recipientPrefix string
+	spfChecker      *SPFChecker
+	dkimChecker     *DKIMChecker
+	verifyMode      string
+	spfEnabled      bool
+	dkimEnabled     bool
+	messageData     []byte
 }
 
 func (s *verifyMailboxSession) Reset() {
 	s.from = ""
 	s.recipients = s.recipients[:0]
 	s.acceptedCount = 0
+	s.messageData = nil
 }
 
 func (s *verifyMailboxSession) Logout() error { return nil }
@@ -136,22 +143,99 @@ func (s *verifyMailboxSession) Rcpt(to string, _ *smtpcore.RcptOptions) error {
 }
 
 func (s *verifyMailboxSession) Data(r io.Reader) error {
-	// We ignore the message body. We only act based on the accepted RCPTs.
-	// Process each accepted verify address independently.
-	if len(s.recipients) == 0 {
-		return nil
-	}
-
-	// Drain up to MaxMessageBytes and then stop, to avoid leaving unread data in the connection.
-	// We intentionally ignore content; a small read protects us from giant inputs if server config failed.
-	bytesRead, err := io.Copy(io.Discard, io.LimitReader(r, s.maxMessageBytes))
+	// Read message data for SPF/DKIM verification
+	messageData, err := readMessageData(r, s.maxMessageBytes)
 	if err != nil && err != io.EOF {
-		logging.WarnLog("SMTP DATA: error draining message from=%s: %v", s.remoteAddr, err)
+		logging.WarnLog("SMTP DATA: error reading message from=%s: %v", s.remoteAddr, err)
 		return &smtpcore.SMTPError{Code: 451, EnhancedCode: smtpcore.EnhancedCode{4, 3, 0}, Message: "error reading message"}
 	}
 
-	if bytesRead >= s.maxMessageBytes {
+	if int64(len(messageData)) >= s.maxMessageBytes {
 		logging.WarnLog("SMTP DATA: message size limit exceeded from=%s", s.remoteAddr)
+	}
+
+	s.messageData = messageData
+
+	// Perform SPF/DKIM verification if not in unrestricted mode
+	if s.verifyMode != "unrestricted" {
+		// Extract sender IP from remote address
+		senderIP := s.remoteAddr
+		if idx := strings.LastIndex(senderIP, ":"); idx >= 0 {
+			senderIP = senderIP[:idx]
+		}
+		// Remove brackets from IPv6 addresses
+		senderIP = strings.Trim(senderIP, "[]")
+
+		var spfResult SPFResult = SPFNone
+		var dkimResult DKIMResult = DKIMNone
+		var verificationFailed bool
+
+		// Perform SPF check
+		if s.spfEnabled && s.from != "" {
+			ctx := context.Background()
+			spfResult, err = s.spfChecker.CheckSPF(ctx, senderIP, s.from)
+			if err != nil {
+				logging.WarnLog("SMTP SPF check error for from=%s ip=%s: %v", utils.HashEmail(s.from), senderIP, err)
+			}
+
+			if spfResult == SPFFail || spfResult == SPFSoftFail {
+				verificationFailed = true
+				if s.verifyMode == "warn" {
+					logging.WarnLog("SMTP SPF verification failed (mode=warn): from=[%s] ip=%s result=%s",
+						utils.HashEmail(s.from), senderIP, spfResult.String())
+				} else if s.verifyMode == "strict" {
+					logging.WarnLog("SMTP SPF verification failed (mode=strict): from=[%s] ip=%s result=%s - rejecting",
+						utils.HashEmail(s.from), senderIP, spfResult.String())
+					return &smtpcore.SMTPError{
+						Code:         550,
+						EnhancedCode: smtpcore.EnhancedCode{5, 7, 1},
+						Message:      "SPF verification failed",
+					}
+				}
+			} else {
+				logging.DebugLog("SMTP SPF check passed: from=[%s] ip=%s result=%s",
+					utils.HashEmail(s.from), senderIP, spfResult.String())
+			}
+		}
+
+		// Perform DKIM check
+		if s.dkimEnabled && len(s.messageData) > 0 {
+			ctx := context.Background()
+			dkimResult, err = s.dkimChecker.CheckDKIM(ctx, s.messageData)
+			if err != nil {
+				logging.WarnLog("SMTP DKIM check error for from=%s: %v", utils.HashEmail(s.from), err)
+			}
+
+			if dkimResult == DKIMFail {
+				verificationFailed = true
+				if s.verifyMode == "warn" {
+					logging.WarnLog("SMTP DKIM verification failed (mode=warn): from=[%s] result=%s",
+						utils.HashEmail(s.from), dkimResult.String())
+				} else if s.verifyMode == "strict" {
+					logging.WarnLog("SMTP DKIM verification failed (mode=strict): from=[%s] result=%s - rejecting",
+						utils.HashEmail(s.from), dkimResult.String())
+					return &smtpcore.SMTPError{
+						Code:         550,
+						EnhancedCode: smtpcore.EnhancedCode{5, 7, 1},
+						Message:      "DKIM verification failed",
+					}
+				}
+			} else {
+				logging.DebugLog("SMTP DKIM check passed: from=[%s] result=%s",
+					utils.HashEmail(s.from), dkimResult.String())
+			}
+		}
+
+		// Log verification summary
+		if verificationFailed && s.verifyMode == "warn" {
+			logging.InfoLog("SMTP verification warning: from=[%s] ip=%s spf=%s dkim=%s - accepting anyway (mode=warn)",
+				utils.HashEmail(s.from), senderIP, spfResult.String(), dkimResult.String())
+		}
+	}
+
+	// Process each accepted verify address independently.
+	if len(s.recipients) == 0 {
+		return nil
 	}
 
 	for _, rcpt := range s.recipients {
@@ -258,6 +342,8 @@ type Backend struct {
 	mgr         *manager.WorkManager
 	rateLimiter *rateLimiter
 	domain      string
+	spfChecker  *SPFChecker
+	dkimChecker *DKIMChecker
 }
 
 func NewBackend(ttl *ephemeral.TTLStore, registry *controller.VerificationRegistry, mgr *manager.WorkManager, domain string) *Backend {
@@ -267,6 +353,8 @@ func NewBackend(ttl *ephemeral.TTLStore, registry *controller.VerificationRegist
 		mgr:         mgr,
 		rateLimiter: newRateLimiter(10, 5*time.Minute),
 		domain:      domain,
+		spfChecker:  NewSPFChecker(),
+		dkimChecker: NewDKIMChecker(),
 	}
 }
 
@@ -286,6 +374,11 @@ func (b *Backend) NewSession(c *smtpcore.Conn) (smtpcore.Session, error) {
 		maxMessageBytes: int64(config.SMTPMaxMessageBytes()),
 		domain:          b.domain,
 		recipientPrefix: config.SMTPRecipientPrefix(),
+		spfChecker:      b.spfChecker,
+		dkimChecker:     b.dkimChecker,
+		verifyMode:      config.SMTPVerificationMode(),
+		spfEnabled:      config.SMTPSPFEnabled(),
+		dkimEnabled:     config.SMTPDKIMEnabled(),
 	}
 	return sess, nil
 }
