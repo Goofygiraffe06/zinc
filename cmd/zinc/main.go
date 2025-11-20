@@ -127,7 +127,6 @@ func main() {
 	// API routes - new interrupt-based registration flow
 	router.Post("/register/init", api.RegisterInitHandler())
 	router.Post("/register", api.RegisterHandler(userStore, ttlStore, verificationRegistry, mgr))
-	router.Post("/login/init", api.AuthInitHandler(userStore, nonceStore, mgr))
 
 	// SMTP server with shared registry for firing interrupts
 	smtpBackend := smtpserver.NewBackend(ttlStore, verificationRegistry, mgr, config.SMTPDomain())
