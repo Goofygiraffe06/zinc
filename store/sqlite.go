@@ -3,9 +3,9 @@ package store
 import (
 	"database/sql"
 	"errors"
-	"log"
 	"strings"
 
+	"github.com/Goofygiraffe06/zinc/internal/logging"
 	"github.com/Goofygiraffe06/zinc/internal/models"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -63,7 +63,7 @@ func (s *SQLiteStore) GetUser(email string) (models.User, bool) {
 		FROM users
 		WHERE email = ?`)
 	if err != nil {
-		log.Println("store.GetUser prepare error:", err)
+		logging.ErrorLog("store.GetUser prepare error: %v", err)
 		return models.User{}, false
 	}
 	defer stmt.Close()
@@ -73,7 +73,7 @@ func (s *SQLiteStore) GetUser(email string) (models.User, bool) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return models.User{}, false
 		}
-		log.Println("store.GetUser error:", err)
+		logging.ErrorLog("store.GetUser error: %v", err)
 		return models.User{}, false
 	}
 
