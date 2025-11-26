@@ -100,7 +100,7 @@ func main() {
 	}
 
 	ttlStore := ephemeral.NewTTLStore()
-	nonceStore := ephemeral.NewNonceStore()
+	//nonceStore := ephemeral.NewNonceStore()
 
 	// Create the shared verification registry for interrupt-based registration
 	verificationRegistry := controller.NewVerificationRegistry()

@@ -4,74 +4,98 @@
 package logging
 
 import (
-	"fmt"
 	"os"
-	"strings"
+	"time"
 
 	"github.com/fatih/color"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
+// coloredLevelEncoder adds color to log levels in development mode
+func coloredLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
+	var levelStr string
+	switch level {
+	case zapcore.DebugLevel:
+		levelStr = color.New(color.FgCyan, color.Bold).Sprint("DBG")
+	case zapcore.InfoLevel:
+		levelStr = color.New(color.FgGreen, color.Bold).Sprint("INF")
+	case zapcore.WarnLevel:
+		levelStr = color.New(color.FgMagenta, color.Bold).Sprint("WRN")
+	case zapcore.ErrorLevel:
+		levelStr = color.New(color.FgRed, color.Bold).Sprint("ERR")
+	case zapcore.DPanicLevel, zapcore.PanicLevel:
+		levelStr = color.New(color.FgHiRed, color.Bold).Sprint("PNC")
+	case zapcore.FatalLevel:
+		levelStr = color.New(color.FgHiRed, color.Bold, color.BgBlack).Sprint("FTL")
+	default:
+		levelStr = level.CapitalString()
+	}
+	enc.AppendString(levelStr)
+}
+
+// coloredTimeEncoder adds dim color to timestamps
+func coloredTimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+	dim := color.New(color.FgHiBlack).SprintFunc()
+	enc.AppendString(dim(t.Format("15:04:05")))
+}
+
+// InitLogger initializes a development logger with colorized console output and JSON file logging
 func InitLogger(logFilePath string) (*os.File, error) {
 	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		return nil, err
 	}
 
-	dim := color.New(color.FgHiBlack).SprintFunc()
-	inf := color.New(color.FgGreen, color.Bold).SprintFunc()
-	dbg := color.New(color.FgCyan, color.Bold).SprintFunc()
-	wrn := color.New(color.FgMagenta, color.Bold).SprintFunc()
-	errC := color.New(color.FgRed, color.Bold).SprintFunc()
-	fat := color.New(color.FgHiRed, color.Bold, color.BgBlack).SprintFunc()
-	msgC := color.New(color.FgWhite, color.Bold).SprintFunc()
-	keyC := color.New(color.FgCyan).SprintFunc()
-	valC := color.New(color.FgWhite).SprintFunc()
-
-	consoleWriter := zerolog.ConsoleWriter{
-		Out:        os.Stdout,
-		TimeFormat: "15:04:05",
+	// Console encoder config with colors
+	consoleEncoderConfig := zapcore.EncoderConfig{
+		TimeKey:        "T",
+		LevelKey:       "L",
+		NameKey:        "N",
+		CallerKey:      zapcore.OmitKey,
+		FunctionKey:    zapcore.OmitKey,
+		MessageKey:     "M",
+		StacktraceKey:  "S",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    coloredLevelEncoder,
+		EncodeTime:     coloredTimeEncoder,
+		EncodeDuration: zapcore.StringDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 
-	consoleWriter.FormatTimestamp = func(i interface{}) string {
-		return dim(fmt.Sprintf("%s", i))
+	// File encoder config (JSON)
+	fileEncoderConfig := zapcore.EncoderConfig{
+		TimeKey:        "timestamp",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		FunctionKey:    zapcore.OmitKey,
+		MessageKey:     "message",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.SecondsDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 
-	consoleWriter.FormatLevel = func(i interface{}) string {
-		switch strings.ToLower(fmt.Sprintf("%s", i)) {
-		case "info":
-			return inf("INF")
-		case "debug":
-			return dbg("DBG")
-		case "warn":
-			return wrn("WRN")
-		case "error":
-			return errC("ERR")
-		case "fatal":
-			return fat("FTL")
-		default:
-			return fmt.Sprintf("%s", i)
-		}
-	}
+	// Create console encoder (with colors)
+	consoleEncoder := zapcore.NewConsoleEncoder(consoleEncoderConfig)
 
-	consoleWriter.FormatMessage = func(i interface{}) string {
-		return msgC(fmt.Sprintf("%s", i))
-	}
+	// Create file encoder (JSON)
+	fileEncoder := zapcore.NewJSONEncoder(fileEncoderConfig)
 
-	consoleWriter.FormatFieldName = func(i interface{}) string {
-		return keyC(fmt.Sprintf("%s=", i))
-	}
+	// Create a multi-core that writes to both console and file
+	core := zapcore.NewTee(
+		zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), zapcore.DebugLevel),
+		zapcore.NewCore(fileEncoder, zapcore.AddSync(file), zapcore.DebugLevel),
+	)
 
-	consoleWriter.FormatFieldValue = func(i interface{}) string {
-		return valC(fmt.Sprintf("%s", i))
-	}
+	// Create logger without caller info
+	l := zap.New(core, zap.AddStacktrace(zapcore.ErrorLevel))
 
-	zerolog.TimeFieldFormat = "15:04:05"
-
-	// Multi-writer: console (colors) + file (JSON)
-	multi := zerolog.MultiLevelWriter(consoleWriter, file)
-	log.Logger = zerolog.New(multi).With().Timestamp().Logger()
+	// Set the global logger
+	SetLogger(l)
 
 	return file, nil
 }
